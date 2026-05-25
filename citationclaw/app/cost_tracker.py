@@ -62,7 +62,7 @@ class CostTracker:
         }
 
         try:
-            async with httpx.AsyncClient(verify=False, timeout=10) as client:
+            async with httpx.AsyncClient(verify=True, timeout=10) as client:
                 r = await client.get(url, headers=headers)
                 data = r.json()
                 if data.get("success"):

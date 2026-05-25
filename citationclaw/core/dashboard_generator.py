@@ -4,6 +4,7 @@ Phase 5: HTML 画像报告生成器
 新增下载链接 + 院士引用描述折叠。
 """
 import ast
+import html as html_module
 import math
 import re
 import json
@@ -14,6 +15,20 @@ from typing import Callable, Optional
 
 import pandas as pd
 from openai import OpenAI
+
+
+def _escape(text):
+    """HTML-escape a string to prevent XSS from LLM-generated content."""
+    return html_module.escape(str(text)) if text else ''
+
+
+def _is_truthy(val):
+    """Parse a value that may be bool, str, or other type into a boolean."""
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        return val.lower() not in ('false', '0', 'nan', 'none', '')
+    return bool(val)
 
 _FAMOUS_INSTITUTIONS = {
     # 国际科技企业
@@ -147,6 +162,14 @@ class DashboardGenerator:
         except (ValueError, TypeError):
             return None
 
+    @staticmethod
+    def _safe_str(val, default="") -> str:
+        """Convert value to string, treating nan/None as empty."""
+        s = str(val or "").strip()
+        if s.lower() in ("nan", "none", "null"):
+            return default
+        return s
+
     def _load_citing_data(self, path: Path):
         """
         Returns:
@@ -167,6 +190,7 @@ class DashboardGenerator:
         descriptions = []
         citing_pairs = []
         self_citing_titles = set()
+        skipped_rows = 0
 
         for _, row in df.iterrows():
             title_raw = str(row.get('Paper_Title', '') or '').strip()
@@ -175,26 +199,28 @@ class DashboardGenerator:
             if not key:
                 key = str(row.get('Paper_Link', '') or '').strip().lower()
             if not key:
+                skipped_rows += 1
                 continue  # cannot identify this row — skip
 
             citing = str(row.get('Citing_Paper', '') or '').strip()
 
             is_self = row.get('Is_Self_Citation', False)
-            if is_self and str(is_self).lower() not in ('false', '0', 'nan', 'none', ''):
+            if _is_truthy(is_self):
                 self_citing_titles.add(key)
 
             if key not in papers_by_key:
+                _s = self._safe_str
                 papers_by_key[key] = {
                     "id": key,
                     "title": title_raw,
                     "year": self._parse_year(row.get('Paper_Year', None)),
-                    "link": str(row.get('Paper_Link', '') or ''),
+                    "link": _s(row.get('Paper_Link', '')),
                     "citations": self._parse_citation_count(row.get('Citations', 0)),
-                    "country": str(row.get('First_Author_Country', '') or '').strip(),
-                    "institution": str(row.get('First_Author_Institution', '') or '').strip(),
-                    "authors": str(row.get('Authors_with_Profile', '') or '').strip(),
-                    "author_affiliation": str(row.get('Searched Author-Affiliation', '') or '').strip(),
-                    "citing_papers": set(),   # which target papers this citing paper belongs to
+                    "country": _s(row.get('First_Author_Country', '')),
+                    "institution": _s(row.get('First_Author_Institution', '')),
+                    "authors": _s(row.get('GS_Authors', row.get('Authors_Affiliation', ''))),
+                    "author_affiliation": _s(row.get('Authors_Affiliation', row.get('Searched Author-Affiliation', ''))),
+                    "citing_papers": [],
                 }
             else:
                 # Keep the highest citation count seen across rows for the same title
@@ -202,17 +228,54 @@ class DashboardGenerator:
                 if new_cit > papers_by_key[key]["citations"]:
                     papers_by_key[key]["citations"] = new_cit
 
-            if citing:
-                papers_by_key[key]["citing_papers"].add(citing)
+            if citing and citing not in papers_by_key[key]["citing_papers"]:
+                papers_by_key[key]["citing_papers"].append(citing)
 
             desc = str(row.get('Citing_Description', '') or '').strip()
-            if desc and desc.upper() not in ("NONE", ""):
+            # Load scholar info for this paper
+            scholar_raw = str(row.get('Renowned Scholar', '') or '').strip()
+            scholars_for_paper = [s.strip() for s in scholar_raw.split('\n') if s.strip()] if scholar_raw else []
+
+            # Filter: only real descriptions (not "未找到", "PDF不可用", ref-only, etc.)
+            is_real_desc = (
+                desc
+                and desc.upper() not in ("NONE", "")
+                and "未在" not in desc
+                and "PDF不可用" not in desc
+                and "LLM提取失败" not in desc
+                and "自引" not in desc
+                and not desc.startswith("[References]")
+                and "[参考文献条目]" not in desc
+                # Filter out descriptions that are just author name lists (ref entries)
+                and not (len(desc) > 100 and desc.count(",") > 5
+                         and any(k in desc.lower() for k in ["arxiv", "preprint", "proceedings", "ieee", "acm"]))
+            )
+            if is_real_desc:
                 descriptions.append(desc)
+                # Extract authors list (first few names)
+                authors_raw = self._safe_str(row.get('Authors_Affiliation', row.get('Searched Author-Affiliation', '')))
+                author_names = []
+                for line in authors_raw.split('\n'):
+                    line = line.strip()
+                    if line and not any(k in line for k in ['未知', '机构', '@', 'http']):
+                        author_names.append(line.split(',')[0].strip()[:30])
+                        if len(author_names) >= 4:
+                            break
+
                 citing_pairs.append({
                     "paper_title": title_raw,
                     "citing_paper": citing,
                     "description": desc,
+                    "scholars": scholars_for_paper,
+                    "year": self._parse_year(row.get('Paper_Year', None)),
+                    "venue": self._safe_str(row.get('Venue', '')),
+                    "authors_short": author_names,
+                    "country": str(row.get('First_Author_Country', '') or '').strip(),
+                    "pdf_downloaded": _is_truthy(row.get('PDF_Download', False)),
                 })
+
+        if skipped_rows > 0:
+            self.log(f"  [_load_citing_data] 跳过 {skipped_rows} 行（标题和链接均为空）")
 
         papers = sorted(papers_by_key.values(), key=lambda p: -p["citations"])
         total_papers = len(papers_by_key)
@@ -277,18 +340,44 @@ class DashboardGenerator:
         }
         """
         _CATEGORY_ORDER = ["国际科技企业", "国内科技企业", "海外顶尖高校", "国内顶尖高校/机构"]
-        inst_papers: dict = {}
+        inst_papers: dict = {}  # inst_name → set of paper titles
+        # Also collect raw affiliation text for LLM verification
+        inst_evidence: dict = {}  # inst_name → [(affil_text, author_name, paper_title)]
+
         for p in papers:
-            inst_raw = (p.get("institution", "") or "")
-            affil_raw = (p.get("author_affiliation", "") or "")
-            text = (inst_raw + " " + affil_raw).lower().strip()
             title = (p.get("title", "") or "").strip()
-            for inst_name, info in _FAMOUS_INSTITUTIONS.items():
-                if any(kw in text for kw in info["keywords"]):
-                    if inst_name not in inst_papers:
-                        inst_papers[inst_name] = set()
-                    if title:
+            if not title:
+                continue
+
+            # Parse individual author affiliations
+            author_affils = []  # [(author_name, affiliation_text)]
+
+            first_inst = (p.get("institution", "") or "").strip()
+            if first_inst and '未知' not in first_inst:
+                author_affils.append(("第一作者", first_inst))
+
+            affil_text = (p.get("author_affiliation", "") or "").strip()
+            if affil_text:
+                lines = [l.strip() for l in affil_text.split('\n') if l.strip()]
+                for j in range(0, len(lines) - 1, 2):
+                    name = lines[j]
+                    inst = lines[j + 1] if j + 1 < len(lines) else ""
+                    if inst and '未知' not in inst:
+                        clean = inst.replace('[PDF✓]', '').strip()
+                        if clean and len(clean) > 3:
+                            author_affils.append((name, clean))
+
+            # Match each individual affiliation
+            for author_name, affil in author_affils:
+                affil_lower = affil.lower()
+                for inst_name, info in _FAMOUS_INSTITUTIONS.items():
+                    if any(kw in affil_lower for kw in info["keywords"]):
+                        if inst_name not in inst_papers:
+                            inst_papers[inst_name] = set()
+                            inst_evidence[inst_name] = []
                         inst_papers[inst_name].add(title)
+                        inst_evidence[inst_name].append((affil, author_name, title))
+
         grouped: dict = {}
         for cat in _CATEGORY_ORDER:
             entries = []
@@ -298,7 +387,89 @@ class DashboardGenerator:
             entries.sort(key=lambda x: -len(x[1]))
             if entries:
                 grouped[cat] = entries
+
+        # Store evidence for LLM verification
+        self._inst_evidence = inst_evidence
         return grouped
+
+    def _verify_institution_matches(self, institution_stats: dict) -> dict:
+        """Use lightweight LLM to verify institution keyword matches are correct.
+
+        Removes false positives like "Cambridge University Hospitals" ≠ Cambridge.
+        """
+        evidence = getattr(self, '_inst_evidence', {})
+        if not evidence:
+            return institution_stats
+
+        # Deduplicate: one check per unique (inst_name, affil) pair
+        seen = set()
+        checks = []
+        for inst_name, matches in evidence.items():
+            for affil, author, paper in matches:
+                key = (inst_name, affil)
+                if key not in seen:
+                    seen.add(key)
+                    checks.append((inst_name, affil, author, paper))
+
+        if not checks:
+            return institution_stats
+
+        self.log(f"  → LLM 验证 {len(checks)} 条机构匹配...")
+
+        items = []
+        for inst_name, affil, _, _ in checks[:30]:
+            items.append(f"- 知名机构: {inst_name} | 实际单位: {affil}")
+
+        prompt = (
+            "以下是通过关键词匹配到的'知名机构'与作者的'实际单位'对照。\n"
+            "请判断每条匹配是否正确——即该作者的实际单位确实是该知名机构（或其下属院系）。\n\n"
+            "【判定规则】：\n"
+            "- 同名但不同性质的机构（如'Cambridge University Hospitals' ≠ 剑桥大学）→ 错误\n"
+            "- 附属医院、独立研究所（非大学院系）→ 错误\n"
+            "- 大学的某个学院/实验室/研究中心 → 正确\n"
+            "- 企业的研究部门/实验室 → 正确\n\n"
+            "每行只输出一个字: 正确 或 错误\n\n"
+            + "\n".join(items)
+        )
+
+        result = self._llm(prompt)
+        if not result:
+            return institution_stats
+
+        answers = result.strip().split('\n')
+
+        # Remove false positives
+        false_affils = set()  # (inst_name, affil)
+        for j, (inst_name, affil, _, _) in enumerate(checks[:30]):
+            if j < len(answers):
+                verdict = answers[j].strip()
+                if '错误' in verdict or '错' in verdict:
+                    self.log(f"    ✗ 移除误匹配: [{inst_name}] ← {affil[:50]}")
+                    false_affils.add((inst_name, affil))
+
+        if not false_affils:
+            self.log(f"    → 全部匹配正确")
+            return institution_stats
+
+        # Rebuild: remove papers linked via false affiliations
+        for inst_name, bad_affil in false_affils:
+            if inst_name not in evidence:
+                continue
+            false_papers = {p for a, _, p in evidence[inst_name] if a == bad_affil}
+            for cat in list(institution_stats.keys()):
+                new_entries = []
+                for iname, papers in institution_stats[cat]:
+                    if iname == inst_name:
+                        remaining = [p for p in papers if p not in false_papers]
+                        if remaining:
+                            new_entries.append((iname, remaining))
+                    else:
+                        new_entries.append((iname, papers))
+                institution_stats[cat] = new_entries
+
+        # Remove empty categories
+        institution_stats = {k: v for k, v in institution_stats.items() if v}
+        return institution_stats
 
     # ─────────────────────────────────────────────────────────────
     # Stats
@@ -310,7 +481,12 @@ class DashboardGenerator:
         # Country from First_Author_Country (all citing papers)
         def _valid_country(c):
             s = str(c).strip()
-            return s not in ('', 'nan', 'None', 'NaN')
+            if s.lower() in ('', 'nan', 'none', 'null', '-'):
+                return False
+            # Reject non-country content
+            if len(s) > 8 or any(k in s for k in ['教授', '副教授', '研究员', '主任', '院长', 'Professor', 'Director']):
+                return False
+            return True
 
         country_counter_papers = Counter(
             p["country"] for p in papers if p.get("country") and _valid_country(p["country"])
@@ -326,13 +502,21 @@ class DashboardGenerator:
             seen_renowned.add(s["name"])
             if s["country"] and _valid_country(s["country"]):
                 country_counter_renowned[s["country"]] += 1
-            lv = s["level"]
-            if lv and "院士" in str(lv) and "其他" not in str(lv) and "Fellow" not in str(lv):
+            lv = str(s["level"] or "")
+            if "重大奖项" in lv:
+                level_counter["重大奖项"] += 1
+            elif lv == "院士" or (lv and "院士" in lv and "其他" not in lv and "Fellow" not in lv):
                 level_counter["两院院士"] += 1
-            elif lv == "Fellow":
-                level_counter["Fellow"] += 1
-            elif lv and "其他院士" in str(lv):
+            elif "其他院士" in lv:
                 level_counter["其他院士"] += 1
+            elif lv == "Fellow" or "fellow" in lv.lower():
+                level_counter["Fellow"] += 1
+            elif "国家级人才" in lv:
+                level_counter["国家级人才"] += 1
+            elif "知名机构" in lv:
+                level_counter["知名机构核心"] += 1
+            elif "大学领导" in lv:
+                level_counter["大学领导层"] += 1
             else:
                 level_counter["其他知名学者"] += 1
 
@@ -348,7 +532,8 @@ class DashboardGenerator:
 
         unique_scholars = len(set(s["name"] for s in all_scholars))
         fellow_count = len(set(s["name"] for s in top_scholars))
-        country_count = len(country_counter_papers) or len(country_counter_renowned)
+        # Prefer scholar countries (more reliable than paper-level first author country)
+        country_count = len(country_counter_renowned) or len(country_counter_papers)
         max_cit = max((p["citations"] for p in papers), default=0)
         total_cit = sum(p["citations"] for p in papers)
 
@@ -652,7 +837,8 @@ color 必须从 ["teal", "sage", "amber", "violet"] 中选择（每种各一个�
         top_year = max(stats["year_counter"], key=stats["year_counter"].get) if stats["year_counter"] else 2025
         top_year_n = stats["year_counter"].get(top_year, 0)
         total = stats["unique_papers"]
-        cn_pct = round(100 * stats["country_counter"].get("中国", 0) / max(stats["unique_scholars"], 1))
+        total_with_country = sum(stats["country_counter"].values())
+        cn_pct = round(100 * stats["country_counter"].get("中国", 0) / max(total_with_country, 1))
         return [
             {"color": "teal", "icon": "📈", "title": "引用时间：扩散势头强劲",
              "body": f"{total}篇引用论文中，{top_year}年发表的占比最高（{top_year_n}篇），表明该论文正处于影响力快速攀升期。"},
@@ -668,40 +854,46 @@ color 必须从 ["teal", "sage", "amber", "violet"] 中选择（每种各一个�
         self.log("  → 生成引用描述综合总结...")
         if not descriptions:
             return ""
+
+        # Separate positive citations from neutral/negative
+        positive_pairs = [p for p in citing_pairs if '正面' in p.get('description', '')]
+        neutral_pairs = [p for p in citing_pairs if '正面' not in p.get('description', '')]
+
         sample = citing_pairs[:60]
         descs_text = "\n\n".join(
-            f"【引用{i+1}】引用论文：《{p['citing_paper'][:80]}》\n"
+            f"【引用{i+1}】引用论文：《{p['paper_title'][:80]}》\n"
             f"引用描述：{p['description'][:500]}"
             for i, p in enumerate(sample)
         )
         total = len(descriptions)
-        prompt = f"""以下是共 {total} 篇论文在引用某目标论文时的引用描述（以下展示 {len(sample)} 条样本）：
+        n_positive = len(positive_pairs)
+
+        prompt = f"""以下是共 {total} 篇论文在引用某目标论文时的引用描述（以下展示 {len(sample)} 条样本，其中 {n_positive} 条为正面引用）：
 
 {descs_text}
 
 请基于上述引用描述，撰写一份结构化的引用描述综合分析文档。
 
 严格约束（必须遵守）：
-- 只描述引用描述中实际出现的内容，不添加来源文本中不存在的判断或形容词
-- 不使用「广受认可」「重要贡献」「具有重要意义」「突破性」等主观评价词语，除非这些词语直接出现在引用描述原文中
-- 不对论文价值作整体性正面或负面定性，只描述引用者实际如何使用该论文
-- 如引用描述中存在批评性、保留性或中性描述，应如实体现，不得遮蔽
-- 第三节直接摘录原文，不加任何主观评语
-- 描述引用规模时，必须使用「在 {total} 篇有效的引用样本中」这一表述，禁止使用「在提供的」「在给出的」等措辞
+- 只描述引用描述中实际出现的内容，不添加来源文本中不存在的判断
+- 不使用「广受认可」「重要贡献」「突破性」等主观评价词语，除非直接出现在引用原文中
+- 如引用描述中存在批评性或保留性描述，应如实体现
+- 第三节优先展示正面引用原文（标注了【正面引用】的），让用户直观看到论文被如何积极评价
+- 描述引用规模时使用「在 {total} 篇有效引用样本中」
 
 使用以下 Markdown 结构（按顺序，不得改变节标题）：
 
 ## 引用规模与分布
-（2-3 句话，说明引用总数、来源论文数量、涉及的研究领域或方向，仅陈述事实）
+（2-3 句话，说明引用总数、涉及的研究领域，仅陈述事实）
 
 ## 主要引用用途
-（描述引用者如何实际使用该论文：作为方法依据、背景综述、对比基准、数据来源等，举例说明，不作价值判断）
+（描述引用者如何使用该论文：方法依据、背景综述、对比基准等，举例说明）
 
-## 代表性引用描述原文
-（直接摘录 3-4 条具有代表性的引用描述原文，使用 > 引用块格式，覆盖不同用途或语气，不加评语）
+## 正面引用描述原文
+（优先摘录标注为正面引用的原文 3-5 条，使用 > 引用块格式。如正面引用不足，可补充有代表性的中性引用。每条注明来源论文标题。）
 
 ## 综合说明
-（2-3 句话，基于以上描述，客观归纳这些引用共同呈现的使用模式，不超越文本范围作推断）
+（2-3 句话，客观归纳引用模式，不超越文本范围作推断）
 
 全程使用中文，语言简洁中性，总长度 300-500 字。
 直接输出 Markdown 文本，不要代码块包裹。"""
@@ -746,8 +938,8 @@ body { font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI
 .header-target-item { display: flex; align-items: baseline; gap: 10px; }
 .header-target-num { font-size: 10px; font-weight: 700; color: rgba(147,197,253,0.6);
   letter-spacing: 1px; flex-shrink: 0; }
-.header-target-title { font-size: 15px; font-weight: 600; color: #e2eeff;
-  line-height: 1.4; word-break: break-word; }
+.header-target-title { font-size: 16px; font-weight: 700; color: #60a5fa;
+  line-height: 1.5; word-break: break-word; text-shadow: 0 1px 2px rgba(0,0,0,0.3); }
 .stats-bar { background: var(--surface); border-bottom: 1px solid var(--border);
   display: flex; overflow-x: auto; box-shadow: var(--shadow-sm); }
 .stat-item { flex: 1; min-width: 120px; padding: 22px 20px; text-align: center;
@@ -796,8 +988,12 @@ body { font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI
 .badge { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 11px;
   font-weight: 500; white-space: nowrap; }
 .b-ys { background: #fff3e0; color: #d4892a; border: 1px solid #f0c070; }
-.b-fw { background: var(--teal-light); color: var(--teal); border: 1px solid #b3d4f0; }
 .b-ot { background: var(--sage-light); color: #357a62; border: 1px solid #a0d9c0; }
+.b-aw { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+.b-fw { background: var(--teal-light); color: var(--teal); border: 1px solid #b3d4f0; }
+.b-nt { background: #ede9fe; color: #5b21b6; border: 1px solid #c4b5fd; }
+.b-il { background: #e0f2fe; color: #075985; border: 1px solid #7dd3fc; }
+.b-ul { background: #fce7f3; color: #9d174d; border: 1px solid #f9a8d4; }
 .b-nm { background: var(--bg2); color: var(--text-muted); border: 1px solid var(--border); }
 .b-cn { background: #fff0f0; color: var(--rose); border: 1px solid #f0c0c0; }
 .b-int { background: var(--violet-light); color: var(--violet); border: 1px solid #c9b8ec; }
@@ -1027,16 +1223,31 @@ a.author-pill:hover { background: var(--teal-light); border-color: var(--teal); 
     @staticmethod
     def _level_badge(level):
         lv = str(level or "")
-        if "院士" in lv and "其他" not in lv and "Fellow" not in lv:
+        if "重大奖项" in lv:
+            return "b-aw", "重大奖项"
+        if lv == "院士" or ("院士" in lv and "其他" not in lv and "Fellow" not in lv):
             return "b-ys", "两院院士"
-        if lv == "Fellow":
-            return "b-fw", "Fellow"
         if "其他院士" in lv:
             return "b-ot", "其他院士"
+        if lv == "Fellow" or "fellow" in lv.lower():
+            return "b-fw", "Fellow"
+        if "国家级人才" in lv:
+            return "b-nt", "国家级人才"
+        if "知名机构" in lv:
+            return "b-il", "知名机构核心"
+        if "大学领导" in lv:
+            return "b-ul", "大学领导层"
         return "b-nm", "知名学者"
 
     @staticmethod
+    @staticmethod
     def _country_badge(country):
+        if not country or str(country).lower() in ('nan', 'none', ''):
+            return '<span class="badge b-nm">-</span>'
+        country = str(country).strip()
+        # Reject non-country content (job titles, institutions)
+        if len(country) > 8 or any(k in country for k in ['教授', '副教授', '研究员', '主任', '院长', 'Professor', 'Director']):
+            return '<span class="badge b-nm">-</span>'
         china_like = {"中国", "China", "中国香港", "中国澳门", "中国台湾"}
         if country in china_like:
             return f'<span class="badge b-cn">{country}</span>'
@@ -1074,7 +1285,7 @@ a.author-pill:hover { background: var(--teal-light); border-color: var(--teal); 
                 '  <p class="cite-sum-preview">' + _cs_preview_safe + '</p>\n'
                 '  <div id="citeSummaryContent" style="display:none">\n'
                 '    <div class="cite-sum-body"><div class="md-content">'
-                + citation_summary
+                + _escape(citation_summary)
                 + '</div></div>\n'
                 '  </div>\n'
                 '</div>'
@@ -1089,6 +1300,14 @@ a.author-pill:hover { background: var(--teal-light); border-color: var(--teal); 
             f'<div class="stat-sub">含 {self_citation_count} 篇自引</div>'
             if self_citation_count > 0 else ''
         )
+        # Build title → link lookup (used throughout the report)
+        _title_to_link = {}
+        for _p in papers:
+            _t = (_p.get("title") or "").strip()
+            _l = (_p.get("link") or "").strip()
+            if _t and _l and _l not in ("nan", "None"):
+                _title_to_link[_t] = _l
+
         # ── Institution section HTML ────────────────────────────────────────────
         INST_CATEGORY_ORDER = ["国际科技企业", "国内科技企业", "海外顶尖高校", "国内顶尖高校/机构"]
         INST_CATEGORY_COLORS = {
@@ -1108,14 +1327,21 @@ a.author-pill:hover { background: var(--teal-light); border-color: var(--teal); 
             for inst_name, paper_titles in entries:
                 iid = f"inst_{inst_counter}"
                 inst_counter += 1
-                paper_items = "".join(
-                    f'<div class="inst-paper-item">&middot; {t[:80]}</div>'
-                    for t in paper_titles
-                )
+                paper_items = ""
+                for t in paper_titles:
+                    _t_link = _title_to_link.get(t.strip(), "")
+                    _t_safe = t[:80].replace('<', '&lt;').replace('>', '&gt;')
+                    if _t_link and _t_link not in ("nan", "None"):
+                        paper_items += f'<div class="inst-paper-item">&middot; <a href="{_t_link}" target="_blank" rel="noopener" style="color:var(--text-body);text-decoration:none;border-bottom:1px dashed var(--border2)">{_t_safe}</a></div>'
+                    else:
+                        paper_items += f'<div class="inst-paper-item">&middot; {_t_safe}</div>'
+                _inst_search_url = f'https://www.google.com/search?q={inst_name.replace(" ", "+")}'
                 tags_html += (
                     f'<span class="inst-tag" style="color:{fg};background:{bg};border:1px solid {fg}44" '
                     f'onclick="toggleInst(\'{iid}\')">'
-                    f'{inst_name} <span class="inst-count">{len(paper_titles)}篇</span></span>'
+                    f'<a href="{_inst_search_url}" target="_blank" rel="noopener" '
+                    f'style="color:inherit;text-decoration:none" onclick="event.stopPropagation()">{inst_name}</a>'
+                    f' <span class="inst-count">{len(paper_titles)}篇</span></span>'
                     f'<div id="{iid}" class="inst-paper-list">{paper_items}</div>'
                 )
             inst_sections_html += (
@@ -1133,7 +1359,7 @@ a.author-pill:hover { background: var(--teal-light); border-color: var(--teal); 
   <div class="section-divider"></div>
 </div>
 <div class="card grid-1">
-  <div class="card-title"><div class="card-title-dot sage"></div>引用该论文的知名大学与科技机构（基于施引作者单位信息匹配，点击机构可展开论文列表）</div>
+  <div class="card-title"><div class="card-title-dot sage"></div>引用该论文的知名大学与科技机构<span style="font-size:10px;color:var(--text-light);font-weight:400;margin-left:8px">基于每位作者单位逐个匹配 · 点击机构名可查看官网 · 点击标签可展开论文列表</span></div>
   {inst_sections_html}
 </div>"""
         else:
@@ -1167,11 +1393,18 @@ a.author-pill:hover { background: var(--teal-light); border-color: var(--teal); 
         SCOPE_MAX = 200      # hard cap on DOM nodes to avoid huge HTML
         citing_list_items = ""
         for i, p in enumerate(papers[:SCOPE_MAX]):
-            hidden = ' class="scope-extra" style="display:none"' if i >= SCOPE_VISIBLE else ''
+            extra_cls = " scope-extra" if i >= SCOPE_VISIBLE else ""
+            extra_style = ' style="display:none"' if i >= SCOPE_VISIBLE else ""
+            _p_link = (p.get("link") or "").strip()
+            if _p_link and _p_link not in ("nan", "None"):
+                _p_name = f'<a href="{_p_link}" target="_blank" rel="noopener" style="color:var(--text-body);text-decoration:none;border-bottom:1px dashed var(--border2)">{p["title"]}</a>'
+            else:
+                _gs_q = p["title"].replace(" ", "+")[:80]
+                _p_name = f'<a href="https://scholar.google.com/scholar?q={_gs_q}" target="_blank" rel="noopener" style="color:var(--text-body);text-decoration:none;border-bottom:1px dashed var(--border2)">{p["title"]}</a>'
             citing_list_items += f"""
-        <div class="citing-paper-item"{hidden}>
+        <div class="citing-paper-item{extra_cls}"{extra_style}>
           <span class="citing-paper-num">{str(i+1).zfill(2)}</span>
-          <span class="citing-paper-name">{p["title"]}</span>
+          <span class="citing-paper-name">{_p_name}</span>
         </div>"""
         # expand / overflow note
         if total_papers > SCOPE_VISIBLE:
@@ -1226,14 +1459,35 @@ a.author-pill:hover { background: var(--teal-light); border-color: var(--teal); 
 
         n_scholars = stats["unique_scholars"]
         lc = stats["level_counter"]
-        fellow_labels = self._js([
-            f"其他知名学者 {lc.get('其他知名学者', 0)}人",
-            f"Fellow {lc.get('Fellow', 0)}人",
-            f"其他院士 {lc.get('其他院士', 0)}人",
-            f"两院院士 {lc.get('两院院士', 0)}人",
-        ])
-        fellow_data = self._js([lc.get("其他知名学者", 0), lc.get("Fellow", 0),
-                                 lc.get("其他院士", 0), lc.get("两院院士", 0)])
+        # Build chart data from all non-zero tiers (ordered by importance)
+        _tier_order = ["重大奖项", "两院院士", "其他院士", "Fellow", "国家级人才", "知名机构核心", "大学领导层", "其他知名学者"]
+        # Distinct colors per tier (bg with alpha, border solid)
+        _tier_colors = {
+            "重大奖项":    ("#f59e0b", "rgba(245,158,11,0.6)"),   # amber
+            "两院院士":    ("#ef4444", "rgba(239,68,68,0.6)"),     # red
+            "其他院士":    ("#f97316", "rgba(249,115,22,0.6)"),    # orange
+            "Fellow":     ("#3b82f6", "rgba(59,130,246,0.6)"),    # blue
+            "国家级人才":   ("#8b5cf6", "rgba(139,92,246,0.6)"),    # purple
+            "知名机构核心":  ("#06b6d4", "rgba(6,182,212,0.6)"),     # cyan
+            "大学领导层":   ("#ec4899", "rgba(236,72,153,0.6)"),    # pink
+            "其他知名学者":  ("#94a3b8", "rgba(148,163,184,0.5)"),   # gray
+        }
+        _tier_labels = []
+        _tier_values = []
+        _tier_bg = []
+        _tier_bd = []
+        for t in _tier_order:
+            v = lc.get(t, 0)
+            if v > 0:
+                _tier_labels.append(f"{t} {v}人")
+                _tier_values.append(v)
+                border, bg = _tier_colors.get(t, ("#94a3b8", "rgba(148,163,184,0.5)"))
+                _tier_bg.append(f"'{bg}'")
+                _tier_bd.append(f"'{border}'")
+        fellow_labels = self._js(_tier_labels)
+        fellow_data = self._js(_tier_values)
+        fellow_colors_bg = ",".join(_tier_bg)
+        fellow_colors_border = ",".join(_tier_bd)
         top10 = papers[:10]
         total_cit_all = sum(p["citations"] for p in papers)
         cite_labels = self._js([self._truncate(p["title"], 48) for p in top10])
@@ -1267,7 +1521,7 @@ a.author-pill:hover { background: var(--teal-light); border-color: var(--teal); 
             col = ct_colors[i % len(ct_colors)]
             ct_items += f"""
         <div class="ctb-row">
-          <div class="ctb-label"><span>{ct.get('type', '')}</span><span>{ct.get('count', 0)} 篇 ({pct}%)</span></div>
+          <div class="ctb-label"><span>{_escape(ct.get('type', ''))}</span><span>{ct.get('count', 0)} 篇 ({pct}%)</span></div>
           <div class="ctb-track"><div class="ctb-fill {col}" style="width:{pct}%"></div></div>
         </div>"""
 
@@ -1288,13 +1542,13 @@ a.author-pill:hover { background: var(--teal-light); border-color: var(--teal); 
         for th in themes:
             freq = th.get("frequency", 5)
             size = 11 + max(0, freq - 3)
-            theme_html += f'<span class="theme-tag" style="font-size:{size}px">{th.get("theme", "")}</span>'
+            theme_html += f'<span class="theme-tag" style="font-size:{size}px">{_escape(th.get("theme", ""))}</span>'
         findings_html = ""
         for i, f in enumerate(citation_analysis.get("key_findings", [])[:5]):
             findings_html += f"""
         <div class="finding-item">
           <div class="finding-num">{i+1}</div>
-          <div>{f}</div>
+          <div>{_escape(f)}</div>
         </div>"""
 
         # ── Section 03 body: show placeholder when citing analysis was skipped
@@ -1347,9 +1601,100 @@ a.author-pill:hover { background: var(--teal-light); border-color: var(--teal); 
             '  <div class="section-divider"></div>\n'
             '</div>\n'
         )
+        # Build per-paper citation detail table — only papers with real descriptions
+        import re as _re
+        _esc = lambda t: t.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        _per_paper_rows = ""
+        for i, cp in enumerate(citing_pairs[:80], 1):
+            desc_raw = cp["description"]
+            # Clean description: remove [Section] prefix and 【sentiment引用】 suffix
+            desc_clean = _re.sub(r'^\[[\w\s/]+\]\s*', '', desc_raw)
+            desc_clean = _re.sub(r'\s*【[正面负中性]+引用】\s*$', '', desc_clean)
+            desc_safe = _esc(desc_clean.strip())
+
+            # Detect sentiment
+            if '【正面引用】' in desc_raw:
+                sent_html = '<span style="color:#4ade80;font-size:11px;font-weight:600">正面</span>'
+            elif '【负面引用】' in desc_raw:
+                sent_html = '<span style="color:#f87171;font-size:11px;font-weight:600">负面</span>'
+            else:
+                sent_html = '<span style="color:var(--text-light);font-size:11px">中性</span>'
+
+            # Title (full) with link
+            title_full = _esc(cp["paper_title"])
+            paper_link = _title_to_link.get(cp["paper_title"].strip(), "")
+            if paper_link and paper_link not in ("nan", "None", ""):
+                title_html = f'<a href="{paper_link}" target="_blank" rel="noopener" style="color:var(--text-body);text-decoration:none;border-bottom:1px dashed var(--border2);font-weight:500">{title_full}</a>'
+            else:
+                _gs_q = cp["paper_title"].replace(" ", "+")[:80]
+                title_html = f'<a href="https://scholar.google.com/scholar?q={_gs_q}" target="_blank" rel="noopener" style="color:var(--text-body);text-decoration:none;border-bottom:1px dashed var(--border2);font-weight:500">{title_full}</a>'
+
+            # Year + Venue
+            year_str = str(cp.get("year", "")) if cp.get("year") else ""
+            venue = _esc(cp.get("venue", ""))
+            meta_parts = []
+            if year_str:
+                meta_parts.append(year_str)
+            if venue:
+                meta_parts.append(venue)
+            meta_html = f'<span style="font-size:10px;color:var(--accent)">{" · ".join(meta_parts)}</span>' if meta_parts else ""
+
+            # Scholar badges — show full info with name + tier
+            scholar_html = ""
+            for s_raw in cp.get("scholars", [])[:3]:
+                s_safe = _esc(s_raw)[:50]
+                # Try to make scholar name clickable (Google Scholar search)
+                s_name = s_raw.split('(')[0].split(':')[-1].strip()[:30] if '(' in s_raw or ':' in s_raw else s_raw.strip()[:30]
+                s_url = f'https://scholar.google.com/scholar?q="{s_name.replace(" ", "+")}"'
+                scholar_html += (
+                    f'<a href="{s_url}" target="_blank" rel="noopener" '
+                    f'style="font-size:10px;color:var(--accent);text-decoration:none;display:block;margin:1px 0">'
+                    f'{s_safe}</a>'
+                )
+            if not scholar_html:
+                scholar_html = '<span style="color:var(--text-light);font-size:10px">—</span>'
+
+            _per_paper_rows += f"""
+        <tr>
+          <td style="font-size:11px;max-width:280px;word-break:break-word;line-height:1.5">
+            {title_html}
+            <br>{meta_html}
+          </td>
+          <td style="font-size:11px;max-width:140px">{scholar_html}</td>
+          <td style="font-size:11px;max-width:350px;word-break:break-word;line-height:1.5;color:var(--text-body)">{desc_safe}</td>
+          <td style="text-align:center;white-space:nowrap">{sent_html}</td>
+        </tr>"""
+
+        if _per_paper_rows:
+            _n_shown = min(len(citing_pairs), 80)
+            per_paper_html = (
+                '\n<div class="card grid-1">\n'
+                '  <div class="card-title">\n'
+                '    <div style="display:flex;align-items:center;gap:7px">\n'
+                '      <div class="card-title-dot blue"></div>逐篇引文评述\n'
+                '      <span style="font-size:10px;color:var(--text-light);font-weight:400">'
+                f'{_n_shown} 篇施引论文的实际评述（可点击标题跳转原文）</span>\n'
+                '    </div>\n'
+                '  </div>\n'
+                '  <div style="overflow-x:auto">\n'
+                '  <table class="scholar-table" style="width:100%">\n'
+                '    <thead><tr>\n'
+                '      <th style="min-width:200px">施引论文 / 刊物</th>\n'
+                '      <th style="min-width:110px">知名学者</th>\n'
+                '      <th style="min-width:240px">引文原文</th>\n'
+                '      <th style="width:50px">态度</th>\n'
+                '    </tr></thead>\n'
+                '    <tbody>'
+                + _per_paper_rows
+                + '\n    </tbody>\n  </table>\n  </div>\n</div>'
+            )
+        else:
+            per_paper_html = ""
+
         section_05_html = (
             _sec05_header
             + (citation_summary_html + '\n' if citation_summary else '')
+            + (per_paper_html + '\n' if per_paper_html else '')
             + section_03_body
         )
 
@@ -1387,66 +1732,86 @@ a.author-pill:hover { background: var(--teal-light); border-color: var(--teal); 
                 if pt and pt not in scholar_groups[group_idx]["_paper_titles"]:
                     scholar_groups[group_idx]["_paper_titles"].append(pt)
 
-        # Sort scholars: 两院院士 → 其他院士 → Fellow → 其他知名学者
-        _level_order_map = {"b-ys": 0, "b-ot": 1, "b-fw": 2, "b-nm": 3}
+        # Sort scholars: 两院院士 → 重大奖项 → 其他院士 → Fellow → 国家级人才 → 知名机构核心 → 大学领导层 → 其他
+        _level_order_map = {"b-ys": 0, "b-aw": 1, "b-ot": 2, "b-fw": 3, "b-nt": 4, "b-il": 5, "b-ul": 6, "b-nm": 7}
         scholar_groups.sort(key=lambda s: _level_order_map.get(self._level_badge(s["level"])[0], 4))
 
-        # Build title → link lookup for the interactive scholar tooltip
-        _title_to_link = {}
-        for _p in papers:
-            _t = (_p.get("title") or "").strip()
-            _l = (_p.get("link") or "").strip()
-            if _t and _l and _l not in ("nan", "None"):
-                _title_to_link[_t] = _l
-
         # Build scholar table rows
+        _esc = lambda t: t.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         scholar_rows = ""
         for idx, s in enumerate(scholar_groups, 1):
             bc, bl = self._level_badge(s["level"])
-            is_top = bc in ("b-ys", "b-fw", "b-ot")
-            # Collect all unique descriptions across all papers this scholar appears in
+
+            # Validate country: fix non-country content
+            country_val = s.get('country', '')
+            if country_val and len(country_val) > 8:
+                # Likely a job title, not country — try to infer from institution
+                from citationclaw.core.affiliation_validator import AffiliationValidator
+                inferred = AffiliationValidator._infer_country(s.get('institution', ''))
+                if inferred:
+                    from citationclaw.core.scholar_search_agent import ScholarSearchAgent as _SSA
+                    country_val = _SSA._normalize_country(inferred)
+                else:
+                    country_val = ''
+
+            # Scholar name with search link
+            name_safe = _esc(s["name"])
+            scholar_search_url = f'https://scholar.google.com/scholar?q="{s["name"].replace(" ", "+")}"'
+            name_html = f'<a href="{scholar_search_url}" target="_blank" rel="noopener" style="color:var(--text-body);text-decoration:none;border-bottom:1px dashed var(--border2)">{name_safe}</a>'
+
+            # Paper links column — each paper as a clickable short title
+            paper_links_html = ""
+            for pt in s.get("_paper_titles", []):
+                pt_safe = _esc(pt[:45]) + ("…" if len(pt) > 45 else "")
+                link = _title_to_link.get(pt, "")
+                if link and link not in ("nan", "None", ""):
+                    paper_links_html += f'<a href="{link}" target="_blank" rel="noopener" style="font-size:10px;color:var(--accent);text-decoration:none;display:block;margin:1px 0">{pt_safe}</a>'
+                else:
+                    paper_links_html += f'<span style="font-size:10px;color:var(--text-light);display:block;margin:1px 0">{pt_safe}</span>'
+            if not paper_links_html:
+                paper_links_html = '<span style="color:var(--text-light);font-size:10px">—</span>'
+
+            # Citation descriptions (collapsible)
             all_descs = []
             for pt in s.get("_paper_titles", []):
                 for d in desc_lookup.get(pt, []):
-                    if d and d not in all_descs:
+                    if d and d not in all_descs and "未在" not in d and "参考文献条目" not in d:
                         all_descs.append(d)
             if all_descs:
                 sep = '\n\n— — —\n\n'
                 merged = sep.join(all_descs)
-                lbl = f"引用描述 ({len(all_descs)}篇) ▾" if len(all_descs) > 1 else "引用描述 ▾"
-                safe_merged = merged.replace('<', '&lt;').replace('>', '&gt;')
-                desc_btn = f'<button class="desc-btn" onclick="toggleDesc(\'desc_{idx}\')">{lbl}</button>'
+                lbl = f"查看 ({len(all_descs)})" if len(all_descs) > 1 else "查看"
+                safe_merged = _esc(merged)
+                desc_btn = f'<button class="desc-btn" onclick="toggleDesc(\'desc_{idx}\')">{lbl} ▾</button>'
                 desc_row = f"""
         <tr id="desc_{idx}" class="desc-row" style="display:none">
-          <td colspan="6"><div class="md-content">{safe_merged}</div></td>
+          <td colspan="8"><div class="md-content">{safe_merged}</div></td>
         </tr>"""
             else:
                 desc_btn = ""
                 desc_row = ""
-            _paper_links_data = [
-                {"t": pt, "l": _title_to_link.get(pt, "")}
-                for pt in s.get("_paper_titles", []) if pt
-            ]
-            if _paper_links_data:
-                _papers_json = json.dumps(_paper_links_data, ensure_ascii=False)
-                _papers_json_safe = _papers_json.replace('"', '&quot;')
-                _name_td = (
-                    f'<td class="sname" data-papers="{_papers_json_safe}">'
-                    f'<span class="sname-hover">{s["name"]}</span></td>'
-                )
+
+            # Institution with Google search link
+            inst_val = _esc((s.get('institution') or '').strip())
+            if inst_val and inst_val not in ('nan', 'None', '未知', '未知机构'):
+                inst_search = f'https://www.google.com/search?q={s["institution"].replace(" ", "+")}'
+                inst_html = f'<a href="{inst_search}" target="_blank" rel="noopener" style="color:var(--text-body);text-decoration:none;border-bottom:1px dashed var(--border2);font-size:11.5px">{inst_val[:35]}{"…" if len(inst_val) > 35 else ""}</a>'
             else:
-                _name_td = f'<td class="sname">{s["name"]}</td>'
+                inst_html = '<span style="color:var(--text-light);font-size:11px">—</span>'
+
             scholar_rows += f"""
         <tr>
           <td style="color:var(--text-light);font-size:11px">{str(idx).zfill(2)}</td>
-          {_name_td}
-          <td>{self._country_badge(s['country'])}</td>
+          <td class="sname">{name_html}</td>
+          <td>{inst_html}</td>
+          <td>{self._country_badge(country_val)}</td>
           <td><span class="badge {bc}">{bl}</span></td>
-          <td class="stitle">{s['title'][:90]}</td>
+          <td class="stitle">{_esc(s['title'][:90])}</td>
+          <td style="max-width:180px">{paper_links_html}</td>
           <td>{desc_btn}</td>
         </tr>{desc_row}"""
 
-        # Helper: parse Authors_with_Profile string (Python dict repr) → list of (name, url)
+        # Helper: parse GS_Authors string (Python dict repr) → list of (name, url)
         # Keys are stored as "author_N_RealName" (e.g. "author_0_John Smith") by the scraper.
         def _parse_authors_with_profile(raw: str):
             try:
@@ -1478,7 +1843,10 @@ a.author-pill:hover { background: var(--teal-light); border-color: var(--teal); 
                 title_part = (f'<a href="{link}" target="_blank" class="pdi-title-link">'
                               f'{p["title"]}</a>')
             else:
-                title_part = p["title"]
+                # Fallback: Google Scholar search
+                _gs_q = p["title"].replace(" ", "+")[:80]
+                title_part = (f'<a href="https://scholar.google.com/scholar?q={_gs_q}" '
+                              f'target="_blank" class="pdi-title-link">{p["title"]}</a>')
             # Authors as clickable pills
             authors_html = ""
             if authors_raw:
@@ -1489,7 +1857,8 @@ a.author-pill:hover { background: var(--teal-light); border-color: var(--teal); 
                     if aurl and aurl.startswith('http'):
                         pills.append(f'<a href="{aurl}" target="_blank" class="author-pill">{aname_safe}</a>')
                     else:
-                        pills.append(f'<span class="author-pill">{aname_safe}</span>')
+                        _gs_a = aname.replace(" ", "+")[:40]
+                        pills.append(f'<a href="https://scholar.google.com/scholar?q=author:{_gs_a}" target="_blank" class="author-pill" style="opacity:0.7">{aname_safe}</a>')
                 if pills:
                     authors_html = (
                         f'<div class="pdi-authors" style="margin-bottom:4px">部分带有谷歌学术主页的作者：</div>'
@@ -1497,7 +1866,8 @@ a.author-pill:hover { background: var(--teal-light); border-color: var(--teal); 
                     )
             meta_parts = []
             if institution:
-                meta_parts.append(f'<span class="pdi-inst-tag">{institution[:55]}</span>')
+                _inst_q = institution.replace(" ", "+")[:50]
+                meta_parts.append(f'<a href="https://www.google.com/search?q={_inst_q}" target="_blank" rel="noopener" class="pdi-inst-tag" style="text-decoration:none;cursor:pointer">{institution[:55]}</a>')
             if country:
                 meta_parts.append(f'<span class="pdi-country-tag">{country}</span>')
             meta_html = f'<div class="pdi-meta-row">{"".join(meta_parts)}</div>' if meta_parts else ""
@@ -1535,33 +1905,35 @@ a.author-pill:hover { background: var(--teal-light); border-color: var(--teal); 
             metrics_html += f"""
         <div class="pred-metric">
           <div>
-            <div class="pred-metric-label">{m.get('label', '')}</div>
-            <div class="pred-metric-note">{m.get('note', '')}</div>
+            <div class="pred-metric-label">{_escape(m.get('label', ''))}</div>
+            <div class="pred-metric-note">{_escape(m.get('note', ''))}</div>
           </div>
-          <div class="pred-metric-val">{m.get('value', '')}</div>
+          <div class="pred-metric-val">{_escape(m.get('value', ''))}</div>
         </div>"""
         impact_html = ""
         for imp in prediction.get("impact_scores", []):
             score = imp.get("score", 50)
-            col_class = imp.get("color_class", "fill-teal")
+            col_class = _escape(imp.get("color_class", "fill-teal"))
             impact_html += f"""
         <div>
-          <div class="impact-row-label"><span>{imp.get('label', '')}</span><span style="color:#7dd8b0">{score}%</span></div>
+          <div class="impact-row-label"><span>{_escape(imp.get('label', ''))}</span><span style="color:#7dd8b0">{score}%</span></div>
           <div class="impact-track"><div class="impact-fill {col_class}" style="width:{score}%"></div></div>
         </div>"""
-        commentary = prediction.get("prediction_commentary", "")
+        commentary = _escape(prediction.get("prediction_commentary", ""))
 
         # ── Insights
         insights_html = ""
         for ins in insights:
-            color = ins.get("color", "teal")
+            color = _escape(ins.get("color", "teal"))
             icon = ins.get("icon", "📊")
-            title = ins.get("title", "")
+            title = _escape(ins.get("title", ""))
             body = ins.get("body", "")
+            # Allow <strong> tags from LLM but escape everything else
+            body_escaped = _escape(body).replace('&lt;strong&gt;', '<strong>').replace('&lt;/strong&gt;', '</strong>')
             insights_html += f"""
       <div class="insight-card {color}">
         <h4>{icon} {title}</h4>
-        <p>{body}</p>
+        <p>{body_escaped}</p>
       </div>"""
 
         gen_date = f"{now.year}.{str(now.month).zfill(2)}.{str(now.day).zfill(2)}"
@@ -1590,7 +1962,7 @@ a.author-pill:hover { background: var(--teal-light); border-color: var(--teal); 
         # Each citing paper links only to the target papers it actually cites
         kg_links = []
         for _i, _p in enumerate(kg_paper_list):
-            paper_citing_set = _p.get("citing_papers", set())
+            paper_citing_set = _p.get("citing_papers", [])
             linked = False
             for _ci, _ct in enumerate(canonical_titles or []):
                 if _ct in paper_citing_set:
@@ -2012,7 +2384,9 @@ a.author-pill:hover { background: var(--teal-light); border-color: var(--teal); 
             target_items = "".join(
                 f'<div class="header-target-item">'
                 f'<span class="header-target-num">{str(i+1).zfill(2)}</span>'
-                f'<span class="header-target-title">{t}</span>'
+                f'<a href="https://scholar.google.com/scholar?q={t.replace(" ", "+")[:80]}" '
+                f'target="_blank" rel="noopener" class="header-target-title" '
+                f'style="text-decoration:none;border-bottom:1px dashed rgba(96,165,250,0.4)">{t}</a>'
                 f'</div>'
                 for i, t in enumerate(canonical_titles)
             )
@@ -2040,7 +2414,7 @@ a.author-pill:hover { background: var(--teal-light); border-color: var(--teal); 
 
 <!-- ═══ HEADER ═══ -->
 <div class="header">
-  <div class="header-eyebrow">CitationClaw</div>
+  <div class="header-eyebrow">CitationClaw v2</div>
   <h1>引用论文<em>多维画像</em>分析报告</h1>
   {header_targets_html}
   <p class="header-subtitle">基于 {total_papers} 篇引用论文与 {stats['unique_scholars']} 位知名学者（含 {stats['fellow_count']} 位院士/Fellow）数据，结合大模型对引用描述的深度解读，全面呈现学术影响力格局</p>
@@ -2122,7 +2496,7 @@ a.author-pill:hover { background: var(--teal-light); border-color: var(--teal); 
   <div class="card-title"><div class="card-title-dot"></div>引用论文中出现的权威学者详细信息（AI搜索生成，已自动去重合并同一学者，仅供参考）</div>
   <div style="overflow-x:auto">
     <table class="scholar-table">
-      <thead><tr><th>#</th><th>学者</th><th>国家/地区</th><th>层级</th><th>头衔 / 荣誉</th><th>引用描述</th></tr></thead>
+      <thead><tr><th>#</th><th>学者</th><th>机构</th><th>国家/地区</th><th>层级</th><th>头衔 / 荣誉</th><th>施引论文</th><th>引用描述</th></tr></thead>
       <tbody>{scholar_rows}</tbody>
     </table>
   </div>
@@ -2263,7 +2637,7 @@ new Chart(document.getElementById('cYear'), {{
   options: {{ responsive: true, maintainAspectRatio: false,
     layout: {{ padding: {{ top: 20 }} }},
     plugins: {{
-      legend: {{ display: true, position: 'bottom', labels: {{ padding: 8, font: {{ size: 10 }} }} }},
+      legend: {{ display: true, position: 'bottom', labels: {{ padding: 8, font: {{ size: 10 }}, usePointStyle: true, pointStyle: 'line' }} }},
       tooltip: {{ callbacks: {{ label: c => c.dataset.label + ': ' + c.raw }} }},
       datalabels: {{ }}
     }},
@@ -2291,8 +2665,8 @@ makeCountryChart('cCountryTop', {country_t_labels}, {country_t_data});
 new Chart(document.getElementById('cFellow'), {{
   type: 'doughnut',
   data: {{ labels: {fellow_labels}, datasets: [{{ data: {fellow_data},
-    backgroundColor: ['rgba(160,174,192,0.5)', TEAL+'bb', SAGE+'bb', AMBER+'bb'],
-    borderColor: ['#a0aec0', TEAL, SAGE, AMBER], borderWidth: 2, hoverOffset: 8 }}] }},
+    backgroundColor: [{fellow_colors_bg}],
+    borderColor: [{fellow_colors_border}], borderWidth: 2, hoverOffset: 8 }}] }},
   options: {{ cutout: '62%', responsive: true, maintainAspectRatio: false,
     plugins: {{ legend: {{ position: 'bottom', labels: {{ padding: 10, font: {{ size: 10 }} }} }},
       tooltip: {{ callbacks: {{ label: c=>`${{c.label}}: ${{Math.round(c.raw/{n_scholars or 1}*100)}}%` }} }} }} }}
@@ -2477,19 +2851,19 @@ new Chart(document.getElementById('cTrend'), {{
 #cc-send:disabled{{opacity:0.4;cursor:default}}
 </style>
 
-<button id="cc-fab" title="CitationClaw 智能助手"><img src="/docs-assets/head_logo.png" style="width:56px;height:56px;border-radius:50%;object-fit:cover;pointer-events:none"></button>
+<button id="cc-fab" title="CitationClaw v2 智能助手"><img src="/static/head_logo.png" style="width:56px;height:56px;border-radius:50%;object-fit:cover;pointer-events:none"></button>
 <div id="cc-win" style="display:none">
   <div id="cc-header">
     <div>
-      <div id="cc-header-title">🦞 CitationClaw 智能助手</div>
+      <div id="cc-header-title">🦞 CitationClaw v2 智能助手</div>
       <div id="cc-header-sub">基于本报告数据 · AI 驱动</div>
     </div>
     <button id="cc-close">✕</button>
   </div>
   <div id="cc-msgs">
-    <div class="cc-bubble ai">你好！我是 CitationClaw 智能助手🦞，已读取本报告所有数据。<br>你可以问我：引用趋势、知名学者、关键词分析、各类统计数据等任何问题。</div>
+    <div class="cc-bubble ai">你好！我是 CitationClaw v2 智能助手🦞，已读取本报告所有数据。<br>你可以问我：引用趋势、知名学者、关键词分析、各类统计数据等任何问题。</div>
   </div>
-  <div id="cc-offline">⚠️ 离线模式：请通过 CitationClaw 应用打开报告以启用 AI 问答功能。</div>
+  <div id="cc-offline">⚠️ 离线模式：请通过 CitationClaw v2 应用打开报告以启用 AI 问答功能。</div>
   <div id="cc-input-row">
     <textarea id="cc-input" rows="2" placeholder="问我关于这份报告的问题…（Enter 发送，Shift+Enter 换行）"></textarea>
     <button id="cc-send">发送</button>
@@ -2510,7 +2884,7 @@ new Chart(document.getElementById('cTrend'), {{
     var win = document.getElementById('cc-win');
     var fab = document.getElementById('cc-fab');
     win.style.display = isOpen ? 'flex' : 'none';
-    fab.innerHTML = isOpen ? '✕' : '<img src="/docs-assets/head_logo.png" style="width:56px;height:56px;border-radius:50%;object-fit:cover;pointer-events:none">';
+    fab.innerHTML = isOpen ? '✕' : '<img src="/static/head_logo.png" style="width:56px;height:56px;border-radius:50%;object-fit:cover;pointer-events:none">';
     fab.style.fontSize = isOpen ? '20px' : '';
     if (isOpen) {{
       var offline = window.location.protocol === 'file:';
@@ -2641,7 +3015,7 @@ new Chart(document.getElementById('cTrend'), {{
     }});
   }};
   }} catch(e) {{
-    console.error('[CitationClaw] Chat widget error:', e);
+    console.error('[CitationClaw v2] Chat widget error:', e);
   }}
 }})();
 </script>
@@ -2666,6 +3040,7 @@ new Chart(document.getElementById('cTrend'), {{
         Full pipeline: load data → LLM analysis → build HTML → write file.
         Returns output_html path.
         """
+        self.log("Dashboard: 加载数据...")
         self.log("📂 加载 citing_with_description 数据...")
         papers, total_papers, descriptions, citing_pairs, unique_citing_papers, self_citation_count = \
             self._load_citing_data(citing_desc_excel)
@@ -2678,7 +3053,9 @@ new Chart(document.getElementById('cTrend'), {{
         self.log("📊 计算基础统计...")
         stats = self._compute_stats(papers, total_papers, top_scholars, all_scholars)
         institution_stats = self._compute_institution_stats(papers)
+        institution_stats = self._verify_institution_matches(institution_stats)
 
+        self.log("Dashboard: 分析引用模式...")
         self.log("🤖 启动 AI 分析...")
         titles = [p["title"] for p in papers]
         keywords = self._analyze_keywords(titles)
@@ -2695,12 +3072,14 @@ new Chart(document.getElementById('cTrend'), {{
             citation_analysis = self._analyze_citation_descriptions(descriptions, citing_pairs)
         prediction = self._generate_prediction(papers, stats)
         insights = self._generate_insights(papers, stats, citation_analysis)
+        self.log("Dashboard: 生成AI洞察...")
         citation_summary = (
             self._summarize_citation_descriptions(descriptions, citing_pairs)
             if (descriptions and not skip_citing_analysis)
             else ""
         )
 
+        self.log("Dashboard: 渲染HTML...")
         self.log("🏗  构建 HTML...")
         html = self._build_html(
             papers, total_papers, top_scholars, all_scholars,
@@ -2713,6 +3092,17 @@ new Chart(document.getElementById('cTrend'), {{
             self_citation_count=self_citation_count,
             institution_stats=institution_stats,
         )
+
+        # Global nan cleanup — replace all "nan" artifacts with "-"
+        import re as _re_clean
+        # Replace standalone "nan" in visible text (not in JS/JSON)
+        html = _re_clean.sub(r'>nan<', '>-<', html)
+        html = _re_clean.sub(r'"nan"', '"-"', html)
+        html = html.replace('>None<', '>-<')
+        html = html.replace('"None"', '"-"')
+        # Clean nan in Google Scholar search URLs
+        html = _re_clean.sub(r'scholar\?q="nan"', 'scholar?q=""', html)
+        html = _re_clean.sub(r'scholar\?q=nan', 'scholar?q=', html)
 
         output_html.parent.mkdir(parents=True, exist_ok=True)
         output_html.write_text(html, encoding="utf-8")

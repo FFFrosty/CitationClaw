@@ -1,5 +1,5 @@
 """
-CitationClaw — 论文被引画像分析🦞
+CitationClaw v2 — 论文被引画像分析🦞
 
 Usage:
     citationclaw          # start web server at http://127.0.0.1:8000
@@ -8,16 +8,39 @@ Usage:
 """
 
 import argparse
+import socket
+import sys
 import threading
 import time
 import webbrowser
-import sys
+import urllib.request
+import urllib.error
+
+
+def _port_in_use(host: str, port: int) -> bool:
+    """Return True if the port is already bound."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.5)
+        return s.connect_ex((host, port)) == 0
+
+
+def _wait_for_server(host: str, port: int, timeout: float = 15.0) -> bool:
+    """Block until the server is accepting HTTP connections, or timeout."""
+    deadline = time.monotonic() + timeout
+    url = f"http://{host}:{port}/api/task/status"
+    while time.monotonic() < deadline:
+        try:
+            urllib.request.urlopen(url, timeout=2)
+            return True
+        except (urllib.error.URLError, OSError):
+            time.sleep(0.3)
+    return False
 
 
 def main():
     parser = argparse.ArgumentParser(
         prog="citationclaw",
-        description="CitationClaw — 论文被引画像分析🦞",
+        description="CitationClaw v2 — 论文被引画像分析🦞",
     )
     parser.add_argument("--host", default="127.0.0.1", help="Host (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8000, help="Port (default: 8000)")
@@ -26,7 +49,6 @@ def main():
 
     try:
         import uvicorn
-        from citationclaw.app.main import app
     except ImportError as e:
         print("=" * 60)
         print("错误: 缺少依赖包!")
@@ -36,21 +58,35 @@ def main():
         print("=" * 60)
         sys.exit(1)
 
-    print(f"\n  CitationClaw 🦞  →  http://{args.host}:{args.port}\n")
+    # Check port availability before starting
+    if _port_in_use(args.host, args.port):
+        print(f"\n  错误: 端口 {args.port} 已被占用。")
+        print(f"  请尝试使用其他端口:  citationclaw --port {args.port + 1}")
+        print(f"  或先关闭占用该端口的程序。\n")
+        sys.exit(1)
+
+    print(f"\n  CitationClaw v2 🦞  →  http://{args.host}:{args.port}\n")
 
     if not args.no_browser:
         def _open_browser():
-            time.sleep(1.5)
-            try:
-                webbrowser.open(f"http://{args.host}:{args.port}")
-            except Exception:
-                pass
+            if _wait_for_server(args.host, args.port, timeout=15.0):
+                try:
+                    webbrowser.open(f"http://{args.host}:{args.port}")
+                except Exception:
+                    pass
+            else:
+                print("  Warning: server did not become ready in time; skipping browser open.")
         threading.Thread(target=_open_browser, daemon=True).start()
 
     try:
-        uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+        uvicorn.run(
+            "citationclaw.app.main:app",
+            host=args.host,
+            port=args.port,
+            log_level="warning",
+        )
     except KeyboardInterrupt:
-        print("\nCitationClaw stopped.")
+        print("\nCitationClaw v2 stopped.")
 
 
 if __name__ == "__main__":

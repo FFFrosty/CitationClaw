@@ -1,3 +1,4 @@
+import asyncio
 import requests
 import time
 from urllib.parse import urlparse, parse_qs
@@ -35,15 +36,45 @@ class ScholarProfileScraper:
             raise ValueError(f"无法从 URL 中解析 user 参数: {profile_url}")
         return qs['user'][0]
 
-    def _scraper_fetch(self, url: str) -> Optional[str]:
+    async def _scraper_fetch(self, url: str) -> Optional[str]:
+        """Fetch a page via ScraperAPI, non-blocking via asyncio.to_thread."""
         for attempt in range(self.retry_max_attempts):
-            key_idx = (self._key_idx + attempt) % len(self.api_keys)
+            key_idx = self._key_idx % len(self.api_keys)
             api_key = self.api_keys[key_idx]
+            # Always advance key index, even on failure
+            self._key_idx = (self._key_idx + 1) % len(self.api_keys)
+            try:
+                payload = {'api_key': api_key, 'url': url}
+                r = await asyncio.to_thread(
+                    requests.get, 'https://api.scraperapi.com/',
+                    params=payload, timeout=90
+                )
+                if r.status_code == 200:
+                    return r.text
+                else:
+                    self.log_callback(f"[ScholarProfile] 请求失败(尝试 {attempt+1}/{self.retry_max_attempts}), 状态码: {r.status_code}")
+                    if attempt < self.retry_max_attempts - 1:
+                        wait = self._get_retry_wait(attempt)
+                        self.log_callback(f"[ScholarProfile] 等待 {wait:.0f}s 后重试...")
+                        await asyncio.sleep(wait)
+            except Exception as e:
+                self.log_callback(f"[ScholarProfile] 请求错误(尝试 {attempt+1}/{self.retry_max_attempts}): {e}")
+                if attempt < self.retry_max_attempts - 1:
+                    wait = self._get_retry_wait(attempt)
+                    await asyncio.sleep(wait)
+        return None
+
+    # Synchronous fallback for callers without an event loop
+    def _scraper_fetch_sync(self, url: str) -> Optional[str]:
+        for attempt in range(self.retry_max_attempts):
+            key_idx = self._key_idx % len(self.api_keys)
+            api_key = self.api_keys[key_idx]
+            # Always advance key index, even on failure
+            self._key_idx = (self._key_idx + 1) % len(self.api_keys)
             try:
                 payload = {'api_key': api_key, 'url': url}
                 r = requests.get('https://api.scraperapi.com/', params=payload, timeout=90)
                 if r.status_code == 200:
-                    self._key_idx = (key_idx + 1) % len(self.api_keys)
                     return r.text
                 else:
                     self.log_callback(f"[ScholarProfile] 请求失败(尝试 {attempt+1}/{self.retry_max_attempts}), 状态码: {r.status_code}")
@@ -84,7 +115,7 @@ class ScholarProfileScraper:
             papers.append({'title': title, 'year': year, 'citations': citations})
         return papers
 
-    def fetch_all_papers(self, profile_url: str) -> List[dict]:
+    async def fetch_all_papers(self, profile_url: str) -> List[dict]:
         user_id = self.extract_user_id(profile_url)
         base = "https://scholar.google.com/citations"
         all_papers = []
@@ -94,7 +125,7 @@ class ScholarProfileScraper:
         while True:
             url = f"{base}?user={user_id}&sortby=citations&cstart={cstart}&pagesize=100"
             self.log_callback(f"[ScholarProfile] 获取第 {cstart//100 + 1} 页 (cstart={cstart})")
-            html = self._scraper_fetch(url)
+            html = await self._scraper_fetch(url)
             if not html:
                 self.log_callback(f"[ScholarProfile] 获取页面失败，停止分页")
                 break

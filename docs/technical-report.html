@@ -699,54 +699,10 @@
   .tag-warn { background: #E65100; color: #FFCC80; }
   .tag-err { background: #B71C1C; color: #FFCDD2; }
 
-  /* ===== MENUBAR MOCKUP ===== */
-  .menubar-mockup {
-    display: flex;
-    justify-content: flex-end;
-    background: linear-gradient(180deg, #2a1510 0%, #1a0d08 100%);
-    padding: 8px 16px;
-    border-radius: var(--radius);
-    margin: 24px 0;
-    box-shadow: var(--shadow-md);
-    position: relative;
-  }
-  .menubar-items {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    color: #F5DEB3;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.78rem;
-  }
-  .menubar-dropdown {
-    position: absolute;
-    top: 44px;
-    right: 16px;
-    background: #2a1510;
-    border: 1px solid #5D4037;
-    border-radius: 8px;
-    padding: 6px;
-    min-width: 240px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-  }
-  .menubar-item {
-    padding: 8px 12px;
-    border-radius: 4px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.78rem;
-    color: #F5DEB3;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .menubar-item:hover { background: rgba(255,140,0,0.15); }
-  .menubar-item .icon { color: var(--accent-fire); width: 16px; text-align: center; }
-  .menubar-separator { height: 1px; background: #3a1a0a; margin: 4px 8px; }
-
   /* ===== SERVICE TIERS ===== */
   .tier-grid {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 12px;
     margin: 32px 0;
   }
@@ -1033,12 +989,13 @@
     <div class="nav-brand">CitationClaw</div>
     <ul class="nav-links">
       <li><a href="#overview">概览</a></li>
+      <li><a href="#v2-changes">V2改动</a></li>
       <li><a href="#philosophy">设计哲学</a></li>
       <li><a href="#architecture">架构图</a></li>
       <li><a href="#pipeline">五阶段流水线</a></li>
       <li><a href="#modules">核心模块</a></li>
       <li><a href="#resilience">弹性设计</a></li>
-      <li><a href="#macos">macOS打包</a></li>
+      <li><a href="#runtime-entry">运行入口</a></li>
       <li><a href="#tiers">服务分层</a></li>
       <li><a href="#limits">限制与展望</a></li>
     </ul>
@@ -1050,11 +1007,11 @@
   <div class="hero-inner">
     <div class="hero-badge">
       <span class="dot"></span>
-      beta v1.0.6 &nbsp;·&nbsp; Python 3.12 &nbsp;·&nbsp; FastAPI &nbsp;·&nbsp; Skills Runtime
+      v2.0.0 &nbsp;·&nbsp; Python 3.12 &nbsp;·&nbsp; FastAPI &nbsp;·&nbsp; Skills Runtime
     </div>
     <h1>Citation<span>Claw</span></h1>
     <p class="hero-subtitle">
-      一个面向科研工作者的全自动学术引用分析系统 —— 从 Google Scholar 抓取到 AI 驱动的作者画像，再到自包含的 HTML 分析仪表盘，端到端无缝流水线。v1.0.6 引入 Skills Runtime，将五阶段流水线模块化为独立可替换的 Skill 对象。
+      一个面向科研工作者的全自动学术引用分析系统 —— 从 Google Scholar 施引文献检索，到结构化作者元数据采集、学者影响力评估、PDF 引文语境提取，再到自包含的 HTML 分析仪表盘。v2 在 v1 的基础上强化了结构化数据优先、模块化 Skill 调度、报告可分享性和成本可控性。
     </p>
     <div class="hero-meta">
       <div class="hero-meta-item">
@@ -1067,22 +1024,99 @@
       </div>
       <div class="hero-meta-item">
         <span class="label">更新日期</span>
-        <span class="value">2026年3月</span>
+        <span class="value">2026年5月</span>
       </div>
       <div class="hero-meta-item">
         <span class="label">许可协议</span>
-        <span class="value">Internal</span>
+        <span class="value">CC BY-NC 4.0</span>
       </div>
     </div>
     <div class="hero-grid">
-      <div class="hero-stat"><span class="num">5</span><span class="lbl">Skills 模块</span></div>
-      <div class="hero-stat"><span class="num">12</span><span class="lbl">核心模块</span></div>
+      <div class="hero-stat"><span class="num">7</span><span class="lbl">已注册 Skill</span></div>
+      <div class="hero-stat"><span class="num">31</span><span class="lbl">core 模块文件</span></div>
       <div class="hero-stat"><span class="num">3</span><span class="lbl">重试层级</span></div>
       <div class="hero-stat"><span class="num">1000+</span><span class="lbl">绕过论文上限</span></div>
       <div class="hero-stat"><span class="num">async</span><span class="lbl">并发架构</span></div>
     </div>
   </div>
 </div>
+
+<!-- ===== SECTION 0: REAL V2 CHANGES ===== -->
+<section class="section" id="v2-changes">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-number">00 &mdash; V2 真实变更摘要</div>
+      <h2>这次 V2 到底改了什么？</h2>
+      <div class="divider"></div>
+      <p>以下内容按当前 <code>v2.0.0</code> 分支源码核对。V2 的核心不是版本号或页面文案变化，而是把 v1 中偏 LLM 搜索驱动的流程，重构为结构化数据优先、PDF 证据增强、Skill 调度和可分享报告的一条完整流水线。</p>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>改动面</th><th>V2 实际实现</th><th>对应源码</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>启动与分发入口</td>
+            <td>项目版本为 <code>2.0.0</code>；正式 CLI 是 <code>citationclaw</code>，源码运行入口是 <code>python -m citationclaw</code>。根目录不再依赖 <code>start.py</code>。</td>
+            <td><code>pyproject.toml</code> · <code>citationclaw/__main__.py</code></td>
+          </tr>
+          <tr>
+            <td>任务入口</td>
+            <td>前端通过 <code>/api/run</code> 提交多论文与 alias；后端主路径是 <code>TaskExecutor.execute_for_titles()</code>，会把 alias 归并到 canonical title，并在一次结果目录内完成 Phase 1-5。</td>
+            <td><code>app/main.py</code> · <code>app/task_executor.py</code></td>
+          </tr>
+          <tr>
+            <td>Skills Runtime</td>
+            <td>注册 7 个 Skill，统一使用 <code>SkillContext(config, log, progress, cancel_check)</code> 调度。V2 主路径仍由 <code>TaskExecutor</code> 串接业务逻辑，但 Phase 1、Export、Phase 4、Phase 5 等阶段通过 runtime 执行。</td>
+            <td><code>skills/runtime.py</code> · <code>skills/registry.py</code></td>
+          </tr>
+          <tr>
+            <td>Phase 1 抓取增强</td>
+            <td>保留 Google Scholar + ScraperAPI 抓取，并增加引用数预检测、超过 1000 引用时的 year-traverse 前端确认、Phase 1 cache、ScraperAPI 费用记录、GS 侧栏 PDF 和 all versions 链接捕获。</td>
+            <td><code>core/scraper.py</code> · <code>skills/phase1_citation_fetch.py</code> · <code>core/phase1_cache.py</code></td>
+          </tr>
+          <tr>
+            <td>结构化作者与元数据</td>
+            <td>Phase 2 改为 S2-first：先查 Semantic Scholar；命中后用 OpenAlex 补充；未命中时并行回退 OpenAlex + arXiv。配置 WOS Key 时，额外启用 WOS → S2 → PDF 的结构化作者提取链。</td>
+            <td><code>core/metadata_collector.py</code> · <code>core/structured_author_fetcher.py</code></td>
+          </tr>
+          <tr>
+            <td>PDF 证据链</td>
+            <td>新增多源 PDF 下载器，按缓存、GS PDF、OpenAlex OA、CVF、S2、DBLP、Sci-Hub、arXiv、publisher、DOI/Unpaywall、CDP 浏览器等路径尝试获取 PDF。下载后通过 MinerU Cloud / 本地 MinerU / PyMuPDF 解析，并用轻量模型抽取首页作者单位。</td>
+            <td><code>core/pdf_downloader.py</code> · <code>core/pdf_mineru_parser.py</code> · <code>core/pdf_author_extractor.py</code></td>
+          </tr>
+          <tr>
+            <td>自引检测</td>
+            <td>先查询目标论文作者，再用严格姓名匹配、姓氏+名首字母、中英文姓名规则标记自引。自引论文会跳过 PDF 下载和学者影响力评估，避免把自己团队的引用算作外部影响力。</td>
+            <td><code>core/self_citation.py</code> · <code>app/task_executor.py</code></td>
+          </tr>
+          <tr>
+            <td>学者影响力评估</td>
+            <td>先用规则预过滤候选作者：h-index、总引用和知名机构信号；只对非自引论文中的候选学者调用 Search LLM。Search LLM 接收结构化作者信息，而不是只凭论文标题盲搜。</td>
+            <td><code>core/scholar_prefilter.py</code> · <code>core/scholar_search_agent.py</code> · <code>core/scholar_search_cache.py</code></td>
+          </tr>
+          <tr>
+            <td>引文语境提取</td>
+            <td>删除旧的 <code>citing_description_searcher.py</code>，改为 PDF-grounded 的 <code>phase4_citation_extract</code>：复用 Phase 2 PDF，定位参考文献编号或作者年份引用，抽取正文上下文，再用 Extractor + Reviewer 双提示词校验。</td>
+            <td><code>skills/phase4_citation_extract.py</code> · <code>core/pdf_parser.py</code> · <code>config/prompts/citation_*.txt</code></td>
+          </tr>
+          <tr>
+            <td>报告、缓存与费用</td>
+            <td>Phase 5 生成自包含 HTML 画像报告；新增从引用描述缓存直接重建报告的入口；运行前后可查询 LLM 额度快照，并输出 ScraperAPI 与 LLM 费用摘要。</td>
+            <td><code>core/dashboard_generator.py</code> · <code>app/cost_tracker.py</code> · <code>app/task_executor.py</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout warning">
+      <div class="callout-title">实现状态说明</div>
+      <p><code>service_tier</code> 和 <code>citing_description_scope</code> 已在配置与前端中定义；当前 <code>execute_for_titles()</code> 后端路径实际只使用 <code>enable_citing_description</code> 判断是否执行 Phase 4，尚未在后端按 <code>renowned_only</code> 对 Phase 4 输入做过滤。因此 Basic 会跳过引文语境，Advanced 与 Full 在当前实现里都会对传入的 merged records 运行 Phase 4。这个差异已在本文“服务分层”和“限制”中明确标注。</p>
+    </div>
+  </div>
+</section>
 
 <!-- ===== SECTION 1: OVERVIEW ===== -->
 <section class="section" id="overview">
@@ -1102,8 +1136,8 @@
       </div>
       <div class="card">
         <div class="card-icon">&#129504;</div>
-        <h3>AI 作者画像</h3>
-        <p>调用 OpenAI-compatible LLM（含 Web Search）识别每位第一作者的机构、国家、Scholar 引用数，以及院士/Fellow/杰青等学术头衔。</p>
+        <h3>结构化作者画像</h3>
+        <p>优先通过 OpenAlex、Semantic Scholar、arXiv、WOS 与 PDF 提取作者和机构，再使用 Search LLM 对院士/Fellow/杰青等高影响力身份进行补充核验。</p>
       </div>
       <div class="card">
         <div class="card-icon">&#128202;</div>
@@ -1125,7 +1159,8 @@
           <span class="tag lg">Pandas</span>
           <span class="tag">OpenPyXL</span>
           <span class="tag">Pydantic v2</span>
-          <span class="tag sm">rumps (macOS)</span>
+          <span class="tag sm">PyMuPDF</span>
+          <span class="tag sm">Playwright</span>
           <span class="tag">Bootstrap 5</span>
           <span class="tag lg">Chart.js 4</span>
           <span class="tag sm">marked.js</span>
@@ -1162,14 +1197,14 @@
         <div class="principle-num">01</div>
         <div class="principle-content">
           <h4>OpenAI-compatible API 抽象</h4>
-          <p>系统通过标准 <code>openai.AsyncOpenAI</code> SDK 与任何兼容 OpenAI Chat Completion 协议的服务对话。使用 <code>extra_body={"web_search_options": {}}</code> 扩展字段启用 Web Search，这使得系统天然兼容 Gemini via Proxy、GPT-4o、DeepSeek、Qwen 等多种后端，切换成本为零。</p>
+          <p>系统通过标准 <code>openai.AsyncOpenAI</code> / <code>OpenAI</code> SDK 与兼容 OpenAI Chat Completion 协议的服务对话。V2 将模型角色拆开：<code>openai_model</code> 应配置为具备搜索能力的模型，用于学者身份核验；<code>dashboard_model</code> 可配置为更便宜的轻量模型，用于报告生成、PDF 作者提取和引文语境抽取。</p>
         </div>
       </div>
       <div class="principle-item">
         <div class="principle-num">02</div>
         <div class="principle-content">
           <h4>Async-first 并发架构</h4>
-          <p>Phase 2（作者搜索）和 Phase 4（引用描述）均为 I/O-bound 工作负载（HTTP 调用 LLM API），使用 <code>asyncio.Semaphore</code> 控制并发数，Phase 1 中 ScraperAPI 的同步调用通过 <code>asyncio.to_thread</code> 包装，不阻塞事件循环。理论并发限制取决于 API 配额，而非线程池大小。</p>
+          <p>Phase 2 的结构化元数据查询、PDF 下载，以及 Phase 3/4 的 Search LLM 与轻量模型调用均为 I/O-bound 工作负载，使用 <code>asyncio.Semaphore</code> 控制并发数。Phase 1 中 ScraperAPI 的同步调用通过 <code>asyncio.to_thread</code> 包装，不阻塞事件循环。理论并发限制取决于 API 配额和外部服务速率限制，而非线程池大小。</p>
         </div>
       </div>
       <div class="principle-item">
@@ -1196,8 +1231,8 @@
       <div class="principle-item">
         <div class="principle-num">06</div>
         <div class="principle-content">
-          <h4>macOS Shell .app 打包（无 Electron）</h4>
-          <p>通过 Shell 脚本构建标准 <code>.app</code> 包结构，用 <code>rumps</code> 实现原生菜单栏 Daemon，Python 环境隔离在 <code>~/Library/Application Support</code> 的 venv 中，使用 <code>arch -arm64</code> 强制 Apple Silicon 原生编译。相比 PyInstaller 或 Electron，打包产物更小，启动更快，无跨平台运行时依赖。</p>
+          <h4>Python package + CLI 分发</h4>
+          <p>v2 通过 <code>pyproject.toml</code> 暴露 <code>citationclaw</code> console script，CLI 内部启动 <code>citationclaw.app.main:app</code> 并自动打开浏览器。这样安装后的用户入口和开发者的 <code>python -m citationclaw</code> 入口指向同一套运行逻辑，避免维护额外启动脚本。</p>
         </div>
       </div>
       <div class="principle-item">
@@ -1211,7 +1246,7 @@
         <div class="principle-num">08</div>
         <div class="principle-content">
           <h4>Skills Runtime — 模块化流水线</h4>
-          <p>v1.0.6 将五阶段流水线重构为 Skills 模式：每个阶段实现 <code>Skill</code> Protocol（含 <code>name: str</code> 和 <code>async run(ctx, **kwargs) → SkillResult</code>），由 <code>SkillsRuntime</code> 统一调度，通过 <code>SkillContext</code>（持有 config、log、progress、cancel_check）共享上下文。这使得各 Skill 可独立测试、替换和扩展，而无需修改执行调度逻辑。</p>
+          <p>v2 将流水线阶段抽象为可注册的 Skill：每个 Skill 实现 <code>Skill</code> Protocol（含 <code>name: str</code> 和 <code>async run(ctx, **kwargs) → SkillResult</code>），由 <code>SkillsRuntime</code> 统一调度，通过 <code>SkillContext</code> 共享 config、log、progress、cancel_check 与 extras。相比 v1 的脚本式流程，v2 更容易替换单个阶段、做单元测试和定位运行问题。</p>
         </div>
       </div>
     </div>
@@ -1222,10 +1257,10 @@
 <section class="section" id="skills">
   <div class="container">
     <div class="section-header">
-      <div class="section-number">02.5 &mdash; Skills Runtime（v1.0.6 新增）</div>
+      <div class="section-number">02.5 &mdash; Skills Runtime（v2 架构核心）</div>
       <h2>模块化技能调度架构</h2>
       <div class="divider"></div>
-      <p>v1.0.6 将五阶段流水线重构为 Skills 模式，实现了阶段级别的解耦与可替换性。</p>
+      <p>v2 以 Skills Runtime 作为任务编排层，将业务阶段拆成可注册、可替换、可测试的执行单元。</p>
     </div>
 
     <div class="card-grid card-grid-2" style="margin-bottom:32px;">
@@ -1240,15 +1275,17 @@
         </ul>
       </div>
       <div class="card">
-        <h3 style="margin-bottom:16px;">&#128230; 五个内置 Skill</h3>
+        <h3 style="margin-bottom:16px;">&#128230; 已注册 Skill</h3>
         <div class="table-wrap" style="margin:0;box-shadow:none;border:none;">
           <table style="font-size:0.82rem;">
             <thead><tr><th>Skill 名称</th><th>Phase</th><th>核心模块</th></tr></thead>
             <tbody>
-              <tr><td><code>CitationFetchSkill</code></td><td>Phase 1</td><td>scraper.py</td></tr>
-              <tr><td><code>AuthorIntelSkill</code></td><td>Phase 2</td><td>author_searcher.py</td></tr>
-              <tr><td><code>ExportSkill</code></td><td>Phase 3</td><td>exporter.py</td></tr>
-              <tr><td><code>CitationDescriptionSkill</code></td><td>Phase 4</td><td>citing_description_searcher.py</td></tr>
+              <tr><td><code>CitationFetchSkill</code></td><td>Phase 1</td><td>scraper.py / url_finder.py</td></tr>
+              <tr><td><code>AuthorIntelSkill</code></td><td>Phase 2 legacy</td><td>author_searcher.py</td></tr>
+              <tr><td><code>MetadataCollectionSkill</code></td><td>Phase 2</td><td>metadata_collector.py / openalex_client.py / s2_client.py / arxiv_client.py</td></tr>
+              <tr><td><code>ExportSkill</code></td><td>Phase 3 export</td><td>exporter.py</td></tr>
+              <tr><td><code>ScholarAssessSkill</code></td><td>Phase 3 assess</td><td>scholar_prefilter.py / scholar_search_agent.py</td></tr>
+              <tr><td><code>CitationExtractSkill</code></td><td>Phase 4</td><td>pdf_downloader.py / pdf_mineru_parser.py / phase4_citation_extract.py</td></tr>
               <tr><td><code>ReportGenerateSkill</code></td><td>Phase 5</td><td>dashboard_generator.py</td></tr>
             </tbody>
           </table>
@@ -1299,7 +1336,7 @@
         </div>
         <div style="background:var(--bg-warm);border-radius:8px;padding:16px;">
           <div style="font-weight:700;color:var(--accent-fire);margin-bottom:8px;">统一 Registry</div>
-          <p style="font-size:0.85rem;color:var(--text-muted);"><code>build_default_registry()</code> 集中注册全部 5 个 Skill，可在测试或扩展时替换为自定义 registry，无需修改 runtime 逻辑。</p>
+          <p style="font-size:0.85rem;color:var(--text-muted);"><code>build_default_registry()</code> 集中注册当前内置 Skill，可在测试或扩展时替换为自定义 registry，无需修改 runtime 逻辑。</p>
         </div>
       </div>
     </div>
@@ -1347,9 +1384,9 @@
       <div class="phase-box">
         <div class="phase-num">Phase 2</div>
         <span class="phase-icon">&#128100;</span>
-        <div class="phase-name">作者搜索</div>
-        <div class="phase-file">author_searcher.py</div>
-        <div class="phase-output">authors.json</div>
+        <div class="phase-name">元数据采集</div>
+        <div class="phase-file">metadata_collector.py</div>
+        <div class="phase-output">authors + pdf paths</div>
       </div>
       <div class="arrow-wrap">
         <div class="arrow">
@@ -1374,8 +1411,8 @@
         <div class="phase-num">Phase 4</div>
         <span class="phase-icon">&#128209;</span>
         <div class="phase-name">引用描述</div>
-        <div class="phase-file">citing_description_searcher.py</div>
-        <div class="phase-output">desc.xlsx</div>
+        <div class="phase-file">phase4_citation_extract.py</div>
+        <div class="phase-output">citing_desc.jsonl</div>
       </div>
       <div class="arrow-wrap">
         <div class="arrow">
@@ -1445,18 +1482,18 @@
 
         <rect x="335" y="220" width="130" height="60" rx="10" fill="#FFF3E0" stroke="#FFB74D" stroke-width="1.5"/>
         <text x="400" y="245" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#3E2723" font-weight="600">Phase 2</text>
-        <text x="400" y="260" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="8.5" fill="#8D6E63">author_searcher.py</text>
-        <text x="400" y="273" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="8.5" fill="#D84315">作者搜索 (async)</text>
+        <text x="400" y="260" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="8.5" fill="#8D6E63">metadata_collector.py</text>
+        <text x="400" y="273" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="8.5" fill="#D84315">结构化元数据</text>
 
         <rect x="335" y="310" width="130" height="60" rx="10" fill="#FFF3E0" stroke="#FFB74D" stroke-width="1.5"/>
         <text x="400" y="335" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#3E2723" font-weight="600">Phase 3</text>
-        <text x="400" y="350" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="8.5" fill="#8D6E63">exporter.py</text>
-        <text x="400" y="363" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="8.5" fill="#D84315">Excel 导出</text>
+        <text x="400" y="350" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="8.5" fill="#8D6E63">scholar_search_agent.py</text>
+        <text x="400" y="363" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="8.5" fill="#D84315">学者评估 + 导出</text>
 
         <rect x="335" y="400" width="130" height="60" rx="10" fill="#FFF3E0" stroke="#FFB74D" stroke-width="1.5"/>
         <text x="400" y="425" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#3E2723" font-weight="600">Phase 4</text>
-        <text x="400" y="440" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="8.5" fill="#8D6E63">citing_description_searcher.py</text>
-        <text x="400" y="453" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="8.5" fill="#D84315">引用描述</text>
+        <text x="400" y="440" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="8.5" fill="#8D6E63">phase4_citation_extract.py</text>
+        <text x="400" y="453" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="8.5" fill="#D84315">PDF 引文语境</text>
 
         <!-- Phase 5 -->
         <rect x="335" y="487" width="130" height="26" rx="8" fill="url(#grd1)"/>
@@ -1489,7 +1526,7 @@
         <rect x="540" y="220" width="130" height="55" rx="10" fill="#FFF3E0" stroke="#FFA726" stroke-width="1.5"/>
         <text x="605" y="243" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#E65100" font-weight="600">LLM API</text>
         <text x="605" y="258" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="8.5" fill="#F57C00">OpenAI-compatible</text>
-        <text x="605" y="269" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="8" fill="#FFB74D">web_search_options</text>
+        <text x="605" y="269" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="8" fill="#FFB74D">search / light models</text>
 
         <!-- Storage -->
         <rect x="540" y="320" width="130" height="55" rx="10" fill="#F3E5F5" stroke="#BA68C8" stroke-width="1.5"/>
@@ -1513,13 +1550,13 @@
         <rect x="750" y="220" width="130" height="280" rx="12" fill="url(#grd2)" stroke="#FF8C00" stroke-width="1.5"/>
         <text x="815" y="248" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="11" fill="#FFD54F" font-weight="700">最终产物</text>
         <line x1="760" y1="258" x2="870" y2="258" stroke="#5D4037" stroke-width="1"/>
-        <text x="815" y="278" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="8.5" fill="#FFCC80">papers.jsonl</text>
-        <text x="815" y="296" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="8.5" fill="#FFCC80">main_table.xlsx</text>
-        <text x="815" y="314" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="8.5" fill="#FFCC80">renowned_only.xlsx</text>
-        <text x="815" y="332" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="8.5" fill="#FFCC80">all_papers.xlsx</text>
-        <text x="815" y="350" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="8.5" fill="#FFCC80">structured.json</text>
-        <text x="815" y="368" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="8.5" fill="#FFCC80">description.xlsx</text>
-        <text x="815" y="390" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" fill="#FF8C00" font-weight="700">dashboard.html</text>
+        <text x="815" y="278" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="8.5" fill="#FFCC80">*_citing.jsonl</text>
+        <text x="815" y="296" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="8.5" fill="#FFCC80">paper_results.xlsx</text>
+        <text x="815" y="314" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="8.5" fill="#FFCC80">all_renowned.xlsx</text>
+        <text x="815" y="332" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="8.5" fill="#FFCC80">top-tier.xlsx</text>
+        <text x="815" y="350" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="8.5" fill="#FFCC80">paper_results.json</text>
+        <text x="815" y="368" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="8.5" fill="#FFCC80">with_citing_desc.xlsx</text>
+        <text x="815" y="390" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" fill="#FF8C00" font-weight="700">paper_dashboard.html</text>
         <rect x="762" y="398" width="106" height="22" rx="4" fill="rgba(255,140,0,0.2)" stroke="rgba(255,140,0,0.5)" stroke-width="1"/>
         <text x="815" y="413" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="8" fill="#FFD54F">自包含 HTML + Chart.js</text>
         <text x="815" y="440" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="8.5" fill="#BCAAA4">颜色编码:</text>
@@ -1598,19 +1635,23 @@
             <div class="code-filename">core/scraper.py — 年份遍历模式</div>
             <div class="code-lang">Python</div>
           </div>
-          <pre><span class="cm"># 年份遍历模式：绕过 Google Scholar 每次只返回 ~1000 篇的硬限制</span>
-<span class="cm"># 解析 .gs_hist_g_a[data-year][data-count] 柱状图</span>
-<span class="kw">async def</span> <span class="fn">_scrape_by_year</span>(<span class="var">self</span>, <span class="var">base_url</span>: <span class="cls">str</span>):
-    <span class="cm"># 先获取年份直方图</span>
-    <span class="var">histogram</span> = <span class="kw">await</span> <span class="var">self</span>.<span class="fn">_fetch_year_histogram</span>(<span class="var">base_url</span>)
-    <span class="cm"># {2018: 43, 2019: 127, 2020: 289, ...}</span>
+          <pre><span class="cm"># scrape_all_citations(..., enable_year_traverse=True)</span>
+<span class="var">citation_count</span>, <span class="var">estimated_pages</span> = <span class="kw">await</span> <span class="var">self</span>.<span class="fn">detect_citation_count</span>(<span class="var">url</span>)
 
-    <span class="kw">for</span> <span class="var">year</span>, <span class="var">count</span> <span class="kw">in</span> <span class="var">histogram</span>.<span class="fn">items</span>():
-        <span class="cm"># 对每个年份单独构造 URL 并抓取</span>
-        <span class="var">year_url</span> = <span class="var">base_url</span> + <span class="str">f"&as_ylo=<span class="kw">{year}</span>&as_yhi=<span class="kw">{year}</span>"</span>
-        <span class="var">papers</span> = <span class="kw">await</span> <span class="var">self</span>.<span class="fn">_scrape_url</span>(<span class="var">year_url</span>)
-        <span class="kw">yield</span> <span class="var">papers</span>
-        <span class="kw">await</span> <span class="fn">self</span>.<span class="fn">_write_jsonl_page</span>(<span class="var">papers</span>)</pre>
+<span class="kw">if</span> <span class="var">enable_year_traverse</span>:
+    <span class="var">html</span> = <span class="kw">await</span> <span class="var">self</span>.<span class="fn">request_fn</span>(<span class="var">url</span>, <span class="num">0</span>, <span class="var">max_retries</span>=<span class="num">2</span>)
+    <span class="var">year_data</span> = <span class="var">self</span>.<span class="fn">_extract_year_data</span>(<span class="var">html</span>)
+
+    <span class="kw">for</span> <span class="var">year</span>, <span class="var">expected_count</span> <span class="kw">in</span> <span class="var">year_data</span>:
+        <span class="var">temp_file</span> = <span class="var">output_file</span>.<span class="var">parent</span> / <span class="str">f"{output_file.stem}_{year}.jsonl"</span>
+        <span class="var">stats</span> = <span class="kw">await</span> <span class="var">self</span>.<span class="fn">_scrape_single_year</span>(
+            <span class="var">base_url</span>=<span class="var">url</span>,
+            <span class="var">year</span>=<span class="var">year</span>,
+            <span class="var">output_file</span>=<span class="var">temp_file</span>,
+            <span class="var">expected_count</span>=<span class="var">expected_count</span>,
+        )
+
+    <span class="var">self</span>.<span class="fn">_merge_year_files</span>(<span class="var">temp_files</span>, <span class="var">output_file</span>)</pre>
         </div>
 
         <div class="code-block">
@@ -1619,23 +1660,28 @@
             <div class="code-filename">core/scraper.py — 数据中心重试与地理轮换</div>
             <div class="code-lang">Python</div>
           </div>
-          <pre><span class="cm"># 20 个优先国家代码（学术流量大，被封概率低）</span>
-<span class="cls">PREFERRED_GEO_COUNTRIES</span> = [
-    <span class="str">'us'</span>, <span class="str">'uk'</span>, <span class="str">'de'</span>, <span class="str">'fr'</span>, <span class="str">'ca'</span>, <span class="str">'au'</span>, <span class="str">'jp'</span>,
-    <span class="str">'kr'</span>, <span class="str">'sg'</span>, <span class="str">'nl'</span>, <span class="str">'se'</span>, <span class="str">'ch'</span>, <span class="str">'at'</span>, <span class="str">'dk'</span>,
-    <span class="str">'fi'</span>, <span class="str">'no'</span>, <span class="str">'nz'</span>, <span class="str">'ie'</span>, <span class="str">'be'</span>, <span class="str">'it'</span>,
-]
+          <pre><span class="cm"># _handle_dc_inconsistency_retry(...)</span>
+<span class="kw">while</span> <span class="kw">True</span>:
+    <span class="var">dc_retry</span> += <span class="num">1</span>
+    <span class="kw">if</span> <span class="var">dc_retry</span> <span class="op">></span> <span class="var">self</span>.<span class="var">dc_retry_max_attempts</span>:
+        <span class="kw">break</span>
 
-<span class="kw">async def</span> <span class="fn">_detect_dc_inconsistency</span>(<span class="var">self</span>, <span class="var">page_html</span>: <span class="cls">str</span>) <span class="op">-></span> <span class="cls">bool</span>:
-    <span class="cm"># 短页面检测：正常页面应有 10 篇论文</span>
-    <span class="var">papers_found</span> = <span class="var">self</span>.<span class="var">parser</span>.<span class="fn">count_results</span>(<span class="var">page_html</span>)
-    <span class="kw">return</span> <span class="var">papers_found</span> <span class="op"><</span> <span class="num">2</span>
+    <span class="var">country_code</span> = <span class="var">self</span>.<span class="fn">_get_retry_country</span>(<span class="var">dc_retry</span>)
+    <span class="var">self</span>.<span class="fn">_rotate_session</span>()
 
-<span class="kw">async def</span> <span class="fn">_rotate_geo</span>(<span class="var">self</span>, <span class="var">attempt</span>: <span class="cls">int</span>) <span class="op">-></span> <span class="cls">str</span>:
-    <span class="kw">if</span> <span class="var">attempt</span> <span class="op"><</span> <span class="num">20</span>:
-        <span class="kw">return</span> <span class="var">self</span>.<span class="cls">PREFERRED_GEO_COUNTRIES</span>[<span class="var">attempt</span> <span class="op">%</span> <span class="num">20</span>]
-    <span class="kw">else</span>:
-        <span class="kw">return</span> <span class="fn">random</span>.<span class="fn">choice</span>(<span class="var">self</span>.<span class="cls">ALL_GEO_COUNTRIES</span>)</pre>
+    <span class="cm"># 有上一页时，先重新请求上一页以拿到更可靠的 next_page</span>
+    <span class="kw">if</span> <span class="var">previous_url</span>:
+        <span class="var">prev_html</span> = <span class="kw">await</span> <span class="var">self</span>.<span class="fn">request_fn</span>(
+            <span class="var">previous_url</span>, <span class="var">dc_api_idx</span>, <span class="var">country_code</span>=<span class="var">country_code</span>
+        )
+
+    <span class="var">dc_html</span> = <span class="kw">await</span> <span class="var">self</span>.<span class="fn">request_fn</span>(
+        <span class="var">retry_url</span>, <span class="var">dc_api_idx</span>, <span class="var">country_code</span>=<span class="var">country_code</span>
+    )
+    <span class="var">dc_paper_dict</span>, <span class="var">dc_next_page</span> = <span class="var">self</span>.<span class="var">parser</span>.<span class="fn">parse_page</span>(<span class="var">dc_html</span>)
+
+    <span class="kw">if</span> <span class="fn">len</span>(<span class="var">dc_paper_dict</span>) <span class="op">></span> <span class="var">best_count</span>:
+        <span class="var">best_paper_dict</span>, <span class="var">best_next_page</span> = <span class="var">dc_paper_dict</span>, <span class="var">dc_next_page</span></pre>
         </div>
 
         <div class="callout warning">
@@ -1649,11 +1695,11 @@
     <div class="phase-detail">
       <div class="phase-detail-header">
         <span class="badge">Phase 2</span>
-        <h3>作者搜索器</h3>
-        <span class="subtitle">author_searcher.py · AuthorSearcher</span>
+        <h3>作者与元数据采集器</h3>
+        <span class="subtitle">metadata_collector.py · structured APIs + PDF fallback</span>
       </div>
       <div class="phase-detail-body">
-        <p>每篇引用论文需要经过多轮 LLM 对话来完成完整的作者画像。整个过程通过 <code>asyncio.Semaphore</code> 控制并发，避免超出 API 速率限制。</p>
+        <p>v2 不再把作者信息采集完全交给 LLM。当前主路径由 <code>TaskExecutor._run_new_phase2_and_3()</code> 执行：先把 Phase 1 的 page-based JSONL 展平成论文列表，按 <code>link/title + canonical title</code> 去重，再用 10 workers 并行查询结构化元数据。S2 是默认主源，OpenAlex 与 arXiv 作为补充；配置 WOS Key 时才启用 WOS → S2 → PDF 的结构化作者链。</p>
 
         <div class="table-wrap">
           <table>
@@ -1661,12 +1707,13 @@
               <tr><th>步骤</th><th>操作</th><th>输入</th><th>输出</th><th>模型</th></tr>
             </thead>
             <tbody>
-              <tr><td><strong>Step 1</strong></td><td>LLM Web Search → 作者+机构（自由文本）</td><td>论文标题 + 第一作者名</td><td>机构名、所在国家（非结构化）</td><td><span class="badge-blue">主模型</span></td></tr>
-              <tr><td><strong>Step 1b</strong></td><td>JSON 提取</td><td>Step 1 输出</td><td><code>first_author_institution</code>, <code>country</code></td><td><span class="badge-blue">主模型</span></td></tr>
-              <tr><td><strong>Step 2</strong></td><td>LLM Web Search → Scholar 引用数 + 学术头衔</td><td>作者名 + 机构</td><td>引用数、院士/Fellow/杰青等识别</td><td><span class="badge-blue">主模型</span></td></tr>
-              <tr><td><strong>Step 3</strong></td><td>事实核验（可选）</td><td>Step 2 输出</td><td>核实后的信息</td><td><span class="badge-green">verify模型</span></td></tr>
-              <tr><td><strong>Step 4</strong></td><td>自引检测</td><td>引用作者集合 vs 目标作者</td><td>is_self_citation (bool)</td><td><span class="badge-blue">主模型</span></td></tr>
-              <tr><td><strong>Step 5</strong></td><td>重要学者识别 + 结构化 JSON</td><td>所有已收集信息</td><td>完整结构化 JSON</td><td><span class="badge-yellow">renowned模型</span></td></tr>
+              <tr><td><strong>Step 1</strong></td><td>目标论文作者查询</td><td>canonical title</td><td>目标论文作者列表，用于后续自引检测</td><td><span class="badge-blue">S2 / OpenAlex / arXiv</span></td></tr>
+              <tr><td><strong>Step 2</strong></td><td>施引论文元数据缓存</td><td>论文标题 / DOI</td><td>命中则直接复用作者、来源、PDF URL</td><td><span class="badge-green">MetadataCache</span></td></tr>
+              <tr><td><strong>Step 3</strong></td><td>S2-first 结构化查询</td><td>论文标题 + paper URL</td><td>S2 作者、DOI、arXiv ID、venue、引用量、PDF；OpenAlex 补充作者 ID/机构</td><td><span class="badge-blue">HTTP API</span></td></tr>
+              <tr><td><strong>Step 4</strong></td><td>WOS 可选增强</td><td>WOS API Key</td><td>WOS 作者名单优先，S2 或 PDF 用于补机构</td><td><span class="badge-blue">WOS + S2 + PDF</span></td></tr>
+              <tr><td><strong>Step 5</strong></td><td>Google Scholar 兜底</td><td>Phase 1 authors_raw</td><td>结构化 API 失败时仍保留作者名，但机构为空</td><td><span class="badge-gray">fallback</span></td></tr>
+              <tr><td><strong>Step 6</strong></td><td>PDF 下载、解析与交叉验证</td><td>非自引施引论文</td><td>PDF 路径、PDF 作者快照、机构补全、PDF 下载失败原因</td><td><span class="badge-blue">PDFDownloader / MinerU</span></td></tr>
+              <tr><td><strong>Step 7</strong></td><td>作者指标补全</td><td>OpenAlex ID / S2 ID / PDF-only 作者</td><td>h-index、citation_count、affiliation、country</td><td><span class="badge-blue">OpenAlex / S2</span></td></tr>
             </tbody>
           </table>
         </div>
@@ -1674,33 +1721,27 @@
         <div class="code-block">
           <div class="code-header">
             <div class="code-dots"><span></span><span></span><span></span></div>
-            <div class="code-filename">core/author_searcher.py — 并发控制</div>
+            <div class="code-filename">core/metadata_collector.py — 结构化来源优先</div>
             <div class="code-lang">Python</div>
           </div>
-          <pre><span class="kw">class</span> <span class="cls">AuthorSearcher</span>:
-    <span class="kw">async def</span> <span class="fn">search_all</span>(<span class="var">self</span>, <span class="var">papers</span>: <span class="cls">list</span>, <span class="var">parallel_workers</span>: <span class="cls">int</span> = <span class="num">5</span>):
-        <span class="var">sem</span> = <span class="cls">asyncio</span>.<span class="fn">Semaphore</span>(<span class="var">parallel_workers</span>)
+          <pre><span class="kw">async def</span> <span class="fn">collect</span>(<span class="var">title</span>, <span class="var">paper_url</span>=<span class="str">""</span>):
+    <span class="cm"># 1. S2 title search</span>
+    <span class="var">s2_result</span> = <span class="kw">await</span> <span class="var">s2</span>.<span class="fn">search_paper</span>(<span class="var">title</span>)
 
-        <span class="kw">async def</span> <span class="fn">_bounded_search</span>(<span class="var">paper</span>):
-            <span class="kw">async with</span> <span class="var">sem</span>:
-                <span class="cm"># 先检查缓存</span>
-                <span class="var">cached</span> = <span class="var">self</span>.<span class="var">cache</span>.<span class="fn">get</span>(<span class="var">paper</span>[<span class="str">'url'</span>])
-                <span class="kw">if</span> <span class="var">cached</span> <span class="kw">and</span> <span class="var">cached</span>.<span class="fn">is_complete</span>():
-                    <span class="kw">return</span> <span class="var">cached</span>
-                <span class="cm"># 执行多步 LLM 搜索</span>
-                <span class="kw">return</span> <span class="kw">await</span> <span class="var">self</span>.<span class="fn">_search_single</span>(<span class="var">paper</span>)
+    <span class="cm"># 2. title miss 时尝试 S2 URL lookup</span>
+    <span class="kw">if</span> <span class="kw">not</span> <span class="var">s2_result</span> <span class="kw">and</span> <span class="var">paper_url</span>:
+        <span class="var">s2_result</span> = <span class="kw">await</span> <span class="var">s2</span>.<span class="fn">search_by_url</span>(<span class="var">paper_url</span>)
 
-        <span class="var">tasks</span> = [<span class="fn">_bounded_search</span>(<span class="var">p</span>) <span class="kw">for</span> <span class="var">p</span> <span class="kw">in</span> <span class="var">papers</span>]
-        <span class="kw">return</span> <span class="kw">await</span> <span class="cls">asyncio</span>.<span class="fn">gather</span>(<span class="op">*</span><span class="var">tasks</span>)
+    <span class="cm"># 3. S2 命中后用 OpenAlex 补充 openalex_id / oa_pdf_url / affiliation</span>
+    <span class="kw">if</span> <span class="var">s2_result</span>:
+        <span class="var">oa</span> = <span class="kw">await</span> <span class="var">openalex</span>.<span class="fn">search_work</span>(<span class="var">title</span>)
+        <span class="kw">return</span> <span class="fn">_build_from_s2</span>(<span class="var">s2_result</span>, <span class="var">oa</span>)
 
-    <span class="kw">async def</span> <span class="fn">_llm_web_search</span>(<span class="var">self</span>, <span class="var">prompt</span>: <span class="cls">str</span>) <span class="op">-></span> <span class="cls">str</span>:
-        <span class="cm"># extra_body 启用 Web Search（OpenAI-compatible 扩展）</span>
-        <span class="var">resp</span> = <span class="kw">await</span> <span class="var">self</span>.<span class="var">client</span>.<span class="var">chat</span>.<span class="var">completions</span>.<span class="fn">create</span>(
-            <span class="var">model</span>=<span class="var">self</span>.<span class="var">model</span>,
-            <span class="var">messages</span>=[{<span class="str">"role"</span>: <span class="str">"user"</span>, <span class="str">"content"</span>: <span class="var">prompt</span>}],
-            <span class="var">extra_body</span>={<span class="str">"web_search_options"</span>: {}}
-        )
-        <span class="kw">return</span> <span class="var">resp</span>.<span class="var">choices</span>[<span class="num">0</span>].<span class="var">message</span>.<span class="var">content</span></pre>
+    <span class="cm"># 4. S2 未命中时并行回退 OpenAlex + arXiv</span>
+    <span class="var">oa</span>, <span class="var">arxiv</span> = <span class="kw">await</span> <span class="fn">asyncio.gather</span>(
+        <span class="var">openalex</span>.<span class="fn">search_work</span>(<span class="var">title</span>),
+        <span class="var">arxiv_client</span>.<span class="fn">search_paper</span>(<span class="var">title</span>),
+    )</pre>
         </div>
       </div>
     </div>
@@ -1709,26 +1750,28 @@
     <div class="phase-detail">
       <div class="phase-detail-header">
         <span class="badge">Phase 3</span>
-        <h3>Excel 导出器</h3>
-        <span class="subtitle">exporter.py</span>
+        <h3>学者影响力评估与导出</h3>
+        <span class="subtitle">scholar_prefilter.py · scholar_search_agent.py · exporter.py</span>
       </div>
       <div class="phase-detail-body">
         <div class="card-grid card-grid-2">
           <div>
-            <p>使用 Pandas 构建 DataFrame，通过 OpenPyXL 写入 Excel。最关键的特性是按学术影响力进行颜色编码，使分析者一眼识别重要引用来源。</p>
+            <p>Phase 3 只对<strong>非自引论文</strong>中的作者做影响力评估。系统先用 <code>ScholarPreFilter</code> 根据 h-index、总引用数和知名机构名单筛出候选作者，再按施引论文调用 <code>ScholarSearchAgent.search_paper_authors()</code>。Search LLM 的输入包含结构化姓名、机构、国家、h-index 和 citation_count，因此比 v1 只凭标题或作者字符串搜索更可控。</p>
             <ul class="feature-list check">
               <li><span class="badge-red">红色</span> CAS/CAE 院士（中国两院院士）</li>
               <li><span class="badge-green">绿色</span> 其他院士（外国院院士等）</li>
               <li><span class="badge-yellow">黄色</span> IEEE/ACM Fellow 等国际称号</li>
               <li>白色 / 普通：其他作者</li>
+              <li>搜索结果写入 <code>ScholarSearchCache</code>，命中缓存时不再调用 Search LLM</li>
             </ul>
           </div>
           <div>
-            <p><strong>三种 Excel 输出：</strong></p>
+            <p><strong>主要 Excel 输出：</strong></p>
             <ul class="feature-list">
-              <li><code>main_table.xlsx</code> — 完整引用表</li>
-              <li><code>renowned_only.xlsx</code> — 仅重要学者</li>
-              <li><code>all_papers.xlsx</code> — 保留所有字段的原始数据</li>
+              <li><code>paper_results.xlsx</code> — 完整施引论文与作者信息表</li>
+              <li><code>paper_results_all_renowned_scholar.xlsx</code> — 所有知名学者引用汇总</li>
+              <li><code>paper_results_top-tier_scholar.xlsx</code> — 顶尖学者子集</li>
+              <li><code>paper_results_with_citing_desc.xlsx</code> — Phase 4 后生成的引文语境增强表</li>
             </ul>
           </div>
         </div>
@@ -1739,30 +1782,36 @@
     <div class="phase-detail">
       <div class="phase-detail-header">
         <span class="badge">Phase 4</span>
-        <h3>引用描述搜索器</h3>
-        <span class="subtitle">citing_description_searcher.py</span>
+        <h3>引文语境提取器</h3>
+        <span class="subtitle">phase4_citation_extract.py · PDF parse + LLM review</span>
       </div>
       <div class="phase-detail-body">
-        <p>对每篇引用论文，LLM 通过 Web Search 访问其 URL，定位并提取<strong>准确引用被引论文的原句</strong>（citation sentence）。</p>
+        <p>v2 的 Phase 4 不再使用旧的 Web Search 摘要模块，而是复用 Phase 2 已下载的 PDF。<code>PDFCitationParser</code> 先把正文与参考文献分离，支持 <code>[N]</code> 和 <code>(Author, Year)</code> 两类引用格式，给段落打上章节标签并扩展上下文窗口；随后轻量模型执行 Extractor 提示词，必要时再由 Reviewer 提示词校验引用编号、参考文献条目和正文句子是否一致。</p>
 
         <div class="code-block">
           <div class="code-header">
             <div class="code-dots"><span></span><span></span><span></span></div>
-            <div class="code-filename">core/citing_description_searcher.py — 锁机制防止重复</div>
+            <div class="code-filename">skills/phase4_citation_extract.py — 当前执行路径</div>
             <div class="code-lang">Python</div>
           </div>
-          <pre><span class="cm"># 对目标论文标题加锁，防止并发时重复查找同一目标</span>
-<span class="var">self</span>.<span class="var">_title_locks</span>: <span class="cls">dict</span>[<span class="cls">str</span>, <span class="cls">asyncio</span>.<span class="cls">Lock</span>] = {}
+          <pre><span class="cm"># execute_for_titles() 传入 merged_authors.jsonl 和 Phase 2 的 pdf_paths</span>
+<span class="kw">await</span> <span class="fn">_run_skill</span>(
+    <span class="str">"phase4_citation_extract"</span>,
+    <span class="var">input_file</span>=<span class="var">merged_file</span>,
+    <span class="var">pdf_paths</span>=<span class="var">phase2_pdf_paths</span>,
+    <span class="var">citation_desc_cache</span>=<span class="var">desc_cache</span>,
+)
 
-<span class="kw">async def</span> <span class="fn">_get_lock</span>(<span class="var">self</span>, <span class="var">title</span>: <span class="cls">str</span>) <span class="op">-></span> <span class="cls">asyncio</span>.<span class="cls">Lock</span>:
-    <span class="kw">if</span> <span class="var">title</span> <span class="kw">not in</span> <span class="var">self</span>.<span class="var">_title_locks</span>:
-        <span class="var">self</span>.<span class="var">_title_locks</span>[<span class="var">title</span>] = <span class="cls">asyncio</span>.<span class="fn">Lock</span>()
-    <span class="kw">return</span> <span class="var">self</span>.<span class="var">_title_locks</span>[<span class="var">title</span>]
+<span class="cm"># 常规流水线中不重新下载 PDF；没有 Phase 2 PDF 路径则标记不可用</span>
+<span class="kw">if</span> <span class="kw">not</span> <span class="var">pdf_path</span>:
+    <span class="kw">return</span> <span class="str">"PDF不可用"</span>
 
-<span class="cm"># 三种抓取范围</span>
-<span class="cm"># "all"            → 所有引用论文</span>
-<span class="cm"># "renowned_only"  → 仅重要学者的论文</span>
-<span class="cm"># "specified_only" → 用户指定的论文列表</span></pre>
+<span class="cm"># 规则直接命中时可跳过 reviewer；低置信度结果进入 Extract → Review → Retry</span></pre>
+        </div>
+
+        <div class="callout warning">
+          <div class="callout-title">当前实现与配置的差异</div>
+          <p><code>citing_description_scope</code> 已在配置中定义了 <code>all</code> / <code>renowned_only</code> / <code>specified_only</code>，但当前 <code>execute_for_titles()</code> 主路径还没有根据该字段过滤 Phase 4 的输入文件；实际控制开关是 <code>enable_citing_description</code>。因此 Basic 会跳过 Phase 4，Advanced 与 Full 当前都会对传入的 merged records 执行 Phase 4。</p>
         </div>
       </div>
     </div>
@@ -2150,101 +2199,63 @@
   </div>
 </section>
 
-<!-- ===== SECTION 7: MACOS ===== -->
-<section class="section" id="macos">
+<!-- ===== SECTION 7: RUNTIME ENTRY ===== -->
+<section class="section" id="runtime-entry">
   <div class="container">
     <div class="section-header">
-      <div class="section-number">07 &mdash; macOS App 打包方案</div>
-      <h2>原生菜单栏应用</h2>
+      <div class="section-number">07 &mdash; 运行入口与部署形态</div>
+      <h2>CLI 启动的本地 Web 应用</h2>
       <div class="divider"></div>
-      <p>无需 Electron，无需 PyInstaller，通过 Shell 脚本构建标准 <code>.app</code> 包，实现真正的 macOS 原生体验。</p>
+      <p>当前 v2.0.0 代码库没有额外桌面壳层或 <code>start.py</code> 入口。正式分发方式是 Python package 暴露的 <code>citationclaw</code> 命令；开发环境可使用 <code>python -m citationclaw</code> 直接启动同一个 FastAPI 应用。</p>
     </div>
 
     <div class="card-grid card-grid-2" style="margin-bottom:32px;">
       <div class="card">
-        <h3 style="margin-bottom:16px;">&#128193; .app 包结构</h3>
+        <h3 style="margin-bottom:16px;">&#128640; 用户侧启动</h3>
         <div class="code-block" style="margin:0;">
           <div class="code-header">
             <div class="code-dots"><span></span><span></span><span></span></div>
-            <div class="code-filename">CitationClaw.app/</div>
+            <div class="code-filename">PyPI install</div>
             <div class="code-lang">Shell</div>
           </div>
-          <pre style="font-size:0.76rem;"><span class="var">CitationClaw</span>.app/
-└── <span class="var">Contents</span>/
-    ├── <span class="var">Info</span>.plist           <span class="cm"># 应用元数据</span>
-    ├── <span class="var">MacOS</span>/
-    │   └── <span class="var">CitationClaw</span>    <span class="cm"># Shell 启动脚本</span>
-    └── <span class="var">Resources</span>/
-        └── <span class="var">icon</span>.icns         <span class="cm"># 应用图标</span></pre>
+          <pre><span class="fn">pip</span> <span class="fn">install</span> citationclaw
+<span class="fn">citationclaw</span>
+<span class="fn">citationclaw</span> <span class="op">--port</span> <span class="num">8080</span>
+<span class="fn">citationclaw</span> <span class="op">--no-browser</span></pre>
         </div>
       </div>
       <div class="card">
-        <h3 style="margin-bottom:16px;">&#9889; 构建关键步骤</h3>
-        <ul class="feature-list check" style="gap:8px;">
-          <li><code>arch -arm64</code> 强制 Apple Silicon 原生 venv 创建</li>
-          <li>venv 路径：<code>~/Library/Application Support/CitationClaw/venv</code></li>
-          <li>依赖安装：<code>pip install -r requirements.txt</code></li>
-          <li><code>rumps</code> 实现原生 macOS 菜单栏 Daemon</li>
-          <li>启动时自动检测 Port 冲突并 kill 旧进程</li>
-          <li>首次启动自动打开浏览器 <code>localhost:8000</code></li>
-        </ul>
+        <h3 style="margin-bottom:16px;">&#128295; 开发侧启动</h3>
+        <div class="code-block" style="margin:0;">
+          <div class="code-header">
+            <div class="code-dots"><span></span><span></span><span></span></div>
+            <div class="code-filename">Source checkout</div>
+            <div class="code-lang">Shell</div>
+          </div>
+          <pre><span class="fn">git</span> clone https://github.com/VisionXLab/CitationClaw.git
+<span class="fn">cd</span> CitationClaw
+<span class="fn">pip</span> <span class="fn">install</span> <span class="op">-r</span> requirements.txt
+<span class="fn">python</span> <span class="op">-m</span> citationclaw
+<span class="fn">python</span> <span class="op">-m</span> citationclaw <span class="op">--port</span> <span class="num">8080</span></pre>
+        </div>
       </div>
     </div>
 
-    <!-- Menubar mockup -->
-    <h3 style="margin-bottom:16px;">菜单栏 UI 模拟</h3>
-    <div class="menubar-mockup">
-      <div class="menubar-items">
-        <span>&#8981;</span>
-        <span>&#128084;</span>
-        <span>&#128246;</span>
-        <span style="color:#FF8C00;font-weight:700;">&#128301; CA</span>
-        <span>&#128337;</span>
-        <span>100%</span>
-        <span>&#9001;</span>
-      </div>
-      <div class="menubar-dropdown">
-        <div class="menubar-item"><span class="icon">&#128301;</span>CitationClaw</div>
-        <div class="menubar-separator"></div>
-        <div class="menubar-item"><span class="icon">&#128269;</span>打开控制面板</div>
-        <div class="menubar-item"><span class="icon">&#128196;</span>查看结果文件</div>
-        <div class="menubar-item"><span class="icon">&#128202;</span>打开最新仪表盘</div>
-        <div class="menubar-separator"></div>
-        <div class="menubar-item"><span class="icon">&#9881;&#65039;</span>偏好设置...</div>
-        <div class="menubar-item"><span class="icon">&#9432;</span>关于 CitationClaw</div>
-        <div class="menubar-separator"></div>
-        <div class="menubar-item"><span class="icon">&#9209;&#65039;</span>停止服务</div>
-        <div class="menubar-item"><span class="icon">&#128682;</span>退出</div>
-      </div>
-    </div>
-
-    <div class="code-block">
-      <div class="code-header">
-        <div class="code-dots"><span></span><span></span><span></span></div>
-        <div class="code-filename">build_macos_app.sh — arm64 强制编译</div>
-        <div class="code-lang">Bash</div>
-      </div>
-      <pre><span class="cm">#!/bin/bash</span>
-<span class="cm"># 强制使用 arm64 架构创建 venv（避免 Rosetta 下创建 x86_64 环境）</span>
-<span class="var">VENV_DIR</span>=<span class="str">"$HOME/Library/Application Support/CitationClaw/venv"</span>
-
-<span class="kw">if</span> [ ! -d <span class="str">"$VENV_DIR"</span> ]; <span class="kw">then</span>
-    <span class="cm"># arch -arm64 确保 Python 解释器以原生 ARM64 运行</span>
-    <span class="fn">arch</span> <span class="op">-arm64</span> <span class="fn">python3</span> <span class="op">-m</span> venv <span class="str">"$VENV_DIR"</span>
-    <span class="str">"$VENV_DIR"</span>/bin/pip <span class="fn">install</span> <span class="op">-r</span> requirements.txt
-<span class="kw">fi</span>
-
-<span class="cm"># 启动 FastAPI 服务（后台运行）</span>
-<span class="str">"$VENV_DIR"</span>/bin/python <span class="fn">start</span>.py &
-<span class="var">SERVER_PID</span>=$!
-
-<span class="cm"># 启动 rumps 菜单栏 Daemon</span>
-<span class="str">"$VENV_DIR"</span>/bin/python <span class="fn">menubar_app</span>.py</pre>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>实现点</th><th>说明</th><th>代码位置</th></tr></thead>
+        <tbody>
+          <tr><td>console script</td><td><code>pyproject.toml</code> 将 <code>citationclaw</code> 映射到 <code>citationclaw.__main__:main</code></td><td><code>pyproject.toml</code></td></tr>
+          <tr><td>端口检测</td><td>启动前检查 <code>host:port</code> 是否已被占用，占用时提示换端口而不是静默失败</td><td><code>citationclaw/__main__.py</code></td></tr>
+          <tr><td>自动打开浏览器</td><td>后台线程等待 <code>/api/task/status</code> 可访问后打开浏览器；<code>--no-browser</code> 可禁用</td><td><code>citationclaw/__main__.py</code></td></tr>
+          <tr><td>应用服务</td><td>实际服务对象是 <code>citationclaw.app.main:app</code>，由 Uvicorn 在本地启动</td><td><code>citationclaw/app/main.py</code></td></tr>
+        </tbody>
+      </table>
     </div>
 
     <div class="callout info">
-      <div class="callout-title">&#128161; 为什么不用 PyInstaller 或 Electron？</div>
-      <p>PyInstaller 的产物体积通常 100MB+，且对动态导入（如 BeautifulSoup 的 parser）不友好。Electron 引入了完整的 Node.js 和 Chromium 运行时（500MB+）。Shell .app 方案产物极小，启动仅需激活 venv，所有依赖明确且可审计，完全符合 macOS 的应用沙盒规范。</p>
+      <div class="callout-title">当前部署边界</div>
+      <p>v2.0.0 仍定位为单用户本地 Web 工具，不是多用户 SaaS 后端。FastAPI 端点默认无认证，<code>data/</code> 与 <code>config.json</code> 是本地共享状态；如果部署到服务器，需要额外加入用户隔离和 API 认证。</p>
     </div>
   </div>
 </section>
@@ -2254,83 +2265,58 @@
   <div class="container">
     <div class="section-header">
       <div class="section-number">08 &mdash; 服务分层设计</div>
-      <h2>五档服务预设</h2>
+      <h2>三档服务预设</h2>
       <div class="divider"></div>
-      <p>不同的使用场景对数据深度和成本的要求不同。CitationClaw 提供五个预设档位，覆盖从"快速概览"到"完整深度分析"的全谱需求。</p>
+      <p>v2 将 v1 中较分散的实验性档位收敛为 Basic / Advanced / Full 三档。配置层已经定义了三档预设；需要注意的是，当前后端主路径尚未使用 <code>citing_description_scope</code> 对 Phase 4 输入做过滤，因此实际执行差异主要体现在 Basic 是否关闭 Phase 4。</p>
     </div>
 
     <div class="tier-grid">
-      <div class="tier-card tier-1">
-        <div class="tier-header">
-          <div class="tier-name">&#127968; 极简</div>
-          <div class="tier-en">minimal</div>
-        </div>
-        <div class="tier-body">
-          <div class="tier-feature"><span class="check">✓</span>Scholar 抓取</div>
-          <div class="tier-feature"><span class="check">✓</span>基础 Excel 导出</div>
-          <div class="tier-feature"><span class="cross">✗</span>作者 AI 搜索</div>
-          <div class="tier-feature"><span class="cross">✗</span>引用描述</div>
-          <div class="tier-feature"><span class="cross">✗</span>仪表盘生成</div>
-          <div class="tier-feature"><span class="cross">✗</span>重要学者筛选</div>
-        </div>
-      </div>
       <div class="tier-card tier-2">
         <div class="tier-header">
-          <div class="tier-name">&#127840; 基础</div>
+          <div class="tier-name">&#127840; 基础服务</div>
           <div class="tier-en">basic</div>
         </div>
         <div class="tier-body">
-          <div class="tier-feature"><span class="check">✓</span>Scholar 抓取</div>
-          <div class="tier-feature"><span class="check">✓</span>作者搜索（单步）</div>
-          <div class="tier-feature"><span class="check">✓</span>彩色 Excel 导出</div>
-          <div class="tier-feature"><span class="cross">✗</span>院士二次筛选</div>
-          <div class="tier-feature"><span class="cross">✗</span>引用描述</div>
-          <div class="tier-feature"><span class="cross">✗</span>仪表盘</div>
+          <div class="tier-feature"><span class="check">✓</span>Google Scholar 施引文献检索</div>
+          <div class="tier-feature"><span class="check">✓</span>结构化作者与元数据采集</div>
+          <div class="tier-feature"><span class="check">✓</span>知名学者预过滤与 Search LLM 评估</div>
+          <div class="tier-feature"><span class="check">✓</span>Excel / JSON / HTML 报告导出</div>
+          <div class="tier-feature"><span class="cross">✗</span>不执行 Phase 4 引文语境提取</div>
+          <div class="tier-feature"><span class="check">✓</span>适合首轮验证与低成本运行</div>
         </div>
       </div>
       <div class="tier-card tier-3">
         <div class="tier-header">
-          <div class="tier-name">&#127757; 标准</div>
-          <div class="tier-en">standard</div>
+          <div class="tier-name">&#127775; 进阶服务</div>
+          <div class="tier-en">advanced</div>
         </div>
         <div class="tier-body">
-          <div class="tier-feature"><span class="check">✓</span>Scholar 抓取</div>
-          <div class="tier-feature"><span class="check">✓</span>完整作者搜索</div>
-          <div class="tier-feature"><span class="check">✓</span>重要学者识别</div>
-          <div class="tier-feature"><span class="check">✓</span>彩色 Excel 导出</div>
-          <div class="tier-feature"><span class="check">✓</span>仪表盘（LLM分析）</div>
-          <div class="tier-feature"><span class="cross">✗</span>引用描述（全量）</div>
-        </div>
-      </div>
-      <div class="tier-card tier-4">
-        <div class="tier-header">
-          <div class="tier-name">&#127775; 深度</div>
-          <div class="tier-en">deep</div>
-        </div>
-        <div class="tier-body">
-          <div class="tier-feature"><span class="check">✓</span>全量功能 (standard)</div>
-          <div class="tier-feature"><span class="check">✓</span>引用描述（重要学者）</div>
-          <div class="tier-feature"><span class="check">✓</span>事实核验（verify）</div>
-          <div class="tier-feature"><span class="check">✓</span>引用描述仪表盘整合</div>
-          <div class="tier-feature"><span class="cross">✗</span>全量引用描述</div>
-          <div class="tier-feature"><span class="cross">✗</span>—</div>
+          <div class="tier-feature"><span class="check">✓</span>包含 Basic 的全部能力</div>
+          <div class="tier-feature"><span class="check">✓</span>配置意图：仅对知名学者相关论文执行 Phase 4</div>
+          <div class="tier-feature"><span class="check">✓</span>提取引用原句、章节位置与态度</div>
+          <div class="tier-feature"><span class="check">✓</span>报告中展示重要学者引用语境</div>
+          <div class="tier-feature"><span class="cross">✗</span>当前实现：后端尚未应用 renowned_only 过滤</div>
+          <div class="tier-feature"><span class="check">✓</span>实际运行时与 Full 一样会触发 Phase 4</div>
+          <div class="tier-feature"><span class="cross">✗</span>成本折中能力待后端补齐过滤逻辑</div>
         </div>
       </div>
       <div class="tier-card tier-5">
         <div class="tier-header">
-          <div class="tier-name">&#128081; 完整</div>
+          <div class="tier-name">&#128081; 全面服务</div>
           <div class="tier-en">full</div>
         </div>
         <div class="tier-body">
-          <div class="tier-feature"><span class="check">✓</span>全量功能 (deep)</div>
-          <div class="tier-feature"><span class="check">✓</span>引用描述（全量所有论文）</div>
-          <div class="tier-feature"><span class="check">✓</span>最高并发分析</div>
-          <div class="tier-feature"><span class="check">✓</span>完整 4-step 作者分析</div>
-          <div class="tier-feature"><span class="check">✓</span>最全仪表盘报告</div>
-          <div class="tier-feature"><span class="check">✓</span>年份遍历模式</div>
+          <div class="tier-feature"><span class="check">✓</span>包含 Basic 的全部能力</div>
+          <div class="tier-feature"><span class="check">✓</span>对全部施引论文执行 Phase 4</div>
+          <div class="tier-feature"><span class="check">✓</span>生成完整引文语境表格</div>
+          <div class="tier-feature"><span class="check">✓</span>支持引用类型、位置、态度和主题分析</div>
+          <div class="tier-feature"><span class="check">✓</span>适合基金、述职、成果汇报前使用</div>
+          <div class="tier-feature"><span class="check">✓</span>成本最高，建议配合费用追踪</div>
         </div>
       </div>
     </div>
+  </div>
+</section>
 
 <!-- ===== SECTION 9: API ENDPOINTS ===== -->
 <section class="section" id="api">
@@ -2351,13 +2337,31 @@
             <td><span class="badge-red">POST</span></td>
             <td><code>/api/run</code></td>
             <td>启动完整分析流水线</td>
-            <td>异步执行，通过 WS 推送进度</td>
+            <td>请求体为论文列表与 output_prefix；异步执行，通过 WS 推送进度</td>
+          </tr>
+          <tr>
+            <td><span class="badge-red">POST</span></td>
+            <td><code>/api/run/from-cache</code></td>
+            <td>从引用描述缓存重建 HTML 报告</td>
+            <td>跳过 Phase 1-4，仅执行 Phase 5</td>
           </tr>
           <tr>
             <td><span class="badge-red">POST</span></td>
             <td><code>/api/scholar/papers</code></td>
             <td>抓取 Scholar 个人主页论文列表</td>
             <td>独立功能，不触发完整流水线</td>
+          </tr>
+          <tr>
+            <td><span class="badge-green">GET</span></td>
+            <td><code>/api/config</code> / <code>/api/presets</code></td>
+            <td>读取配置与服务层级预设</td>
+            <td>配置保存时 year_traverse 不持久化</td>
+          </tr>
+          <tr>
+            <td><span class="badge-red">POST</span></td>
+            <td><code>/api/task/year-traverse-respond</code></td>
+            <td>响应超 1000 引用论文的年份遍历确认</td>
+            <td>由后端广播 year_traverse_prompt 后调用</td>
           </tr>
           <tr>
             <td><span class="badge-green">GET</span></td>
@@ -2400,14 +2404,13 @@
         <div class="code-lang">JSON</div>
       </div>
       <pre>{
-  <span class="str">"scholar_url"</span>: <span class="str">"https://scholar.google.com/scholar?cites=12345"</span>,
-  <span class="str">"service_tier"</span>: <span class="str">"standard"</span>,
-  <span class="str">"parallel_workers"</span>: <span class="num">5</span>,
-  <span class="str">"year_traverse"</span>: <span class="kw">true</span>,
-  <span class="str">"geo_rotate"</span>: <span class="kw">true</span>,
-  <span class="str">"dc_retry_max_attempts"</span>: <span class="num">10</span>,
-  <span class="str">"enable_renowned_scholar"</span>: <span class="kw">true</span>,
-  <span class="str">"citing_description_scope"</span>: <span class="str">"renowned_only"</span>
+  <span class="str">"papers"</span>: [
+    {
+      <span class="str">"title"</span>: <span class="str">"Attention Is All You Need"</span>,
+      <span class="str">"aliases"</span>: [<span class="str">"Transformer"</span>]
+    }
+  ],
+  <span class="str">"output_prefix"</span>: <span class="str">"paper"</span>
 }</pre>
     </div>
   </div>
@@ -2434,8 +2437,16 @@
     <div class="limit-card">
       <div class="limit-icon">&#128100;</div>
       <div class="limit-content">
-        <h4>作者识别准确率依赖 LLM 和 Web Search 质量</h4>
-        <p>对于同名学者（如"Li Wei"在中国学术界有数百人），LLM 可能混淆人物。当前依赖 LLM 自身的推理能力消歧，无专门的实体链接（Entity Linking）模块。<strong>改进方向：</strong>集成 OpenAlex API 或 Semantic Scholar API 进行结构化作者消歧，降低 LLM 错误率。</p>
+        <h4>学者影响力评估仍依赖 Search LLM 质量</h4>
+        <p>v2 已通过 OpenAlex、Semantic Scholar、arXiv、WOS 与 PDF 提高作者元数据的确定性，但院士/Fellow/国家级人才等身份仍需要跨网页核验。对于同名学者或机构变更频繁的作者，Search LLM 仍可能混淆人物。<strong>改进方向：</strong>引入更细粒度的作者实体链接、官方名单比对和证据链接评分，进一步降低误判率。</p>
+      </div>
+    </div>
+
+    <div class="limit-card">
+      <div class="limit-icon">&#9888;&#65039;</div>
+      <div class="limit-content">
+        <h4>Advanced 的 Phase 4 范围过滤尚未在后端生效</h4>
+        <p>配置和前端已经定义 <code>citing_description_scope=renowned_only</code>，但 <code>execute_for_titles()</code> 当前直接把 <code>merged_authors.jsonl</code> 传给 <code>phase4_citation_extract</code>，没有先过滤出知名学者相关论文。因此 Advanced 与 Full 在 Phase 4 覆盖范围上暂时等价。<strong>改进方向：</strong>在进入 Phase 4 前根据 <code>Renowned Scholar</code> / 指定学者名单生成 filtered JSONL，并把实际输入文件写入日志和报告元数据。</p>
       </div>
     </div>
 
@@ -2479,16 +2490,17 @@
         <h4>短期（Near-term）</h4>
         <ul class="feature-list check" style="gap:6px;margin-top:8px;">
           <li>Phase 5 仪表盘异步并发</li>
+          <li>Advanced 后端 Phase 4 范围过滤</li>
           <li>年份遍历断点续抓</li>
           <li>缓存 TTL 策略</li>
-          <li>作者搜索错误率统计</li>
+          <li>结构化元数据命中率统计</li>
         </ul>
       </div>
       <div class="card">
         <div style="font-size:1.5rem;margin-bottom:12px;">&#128999;</div>
         <h4>中期（Mid-term）</h4>
         <ul class="feature-list check" style="gap:6px;margin-top:8px;">
-          <li>OpenAlex 作者消歧集成</li>
+          <li>更细粒度的作者消歧与机构规范化</li>
           <li>多用户 UUID 任务隔离</li>
           <li>Playwright 作为 fallback 抓取器</li>
           <li>API Key 认证中间件</li>
@@ -2498,10 +2510,10 @@
         <div style="font-size:1.5rem;margin-bottom:12px;">&#128998;</div>
         <h4>长期（Long-term）</h4>
         <ul class="feature-list check" style="gap:6px;margin-top:8px;">
-          <li>Semantic Scholar / OpenAlex 多源聚合</li>
+          <li>Crossref / PubMed 等更多学科数据源聚合</li>
           <li>知识图谱引用网络可视化</li>
           <li>定时监控（引用增量推送）</li>
-          <li>Windows 版本适配</li>
+          <li>桌面端打包与自动更新机制</li>
         </ul>
       </div>
     </div>
@@ -2525,7 +2537,7 @@
           <div class="progress-bar-track"><div class="progress-bar-fill" style="width:60%;"></div></div>
         </div>
         <div class="progress-bar-wrap">
-          <div class="progress-label"><span>Phase 2 作者搜索（并发=5）</span><span>~2分钟/100篇</span></div>
+          <div class="progress-label"><span>Phase 2 元数据采集（并发=10）</span><span>取决于 API 限速</span></div>
           <div class="progress-bar-track"><div class="progress-bar-fill" style="width:75%;"></div></div>
         </div>
         <div class="progress-bar-wrap">
@@ -2545,14 +2557,14 @@
               <tr><th style="padding:8px 12px;">Package</th><th style="padding:8px 12px;">Version</th><th style="padding:8px 12px;">用途</th></tr>
             </thead>
             <tbody>
-              <tr><td>fastapi</td><td><code>latest</code></td><td>Web 框架</td></tr>
-              <tr><td>openai</td><td><code>≥1.x</code></td><td>LLM SDK</td></tr>
-              <tr><td>beautifulsoup4</td><td><code>4.x</code></td><td>HTML 解析</td></tr>
-              <tr><td>pandas</td><td><code>2.x</code></td><td>数据处理</td></tr>
-              <tr><td>pydantic</td><td><code>v2</code></td><td>数据校验</td></tr>
-              <tr><td>httpx</td><td><code>latest</code></td><td>HTTP 客户端</td></tr>
-              <tr><td>rumps</td><td><code>latest</code></td><td>macOS 菜单栏</td></tr>
-              <tr><td>openpyxl</td><td><code>3.x</code></td><td>Excel 写入</td></tr>
+              <tr><td>fastapi</td><td><code>0.109.0</code></td><td>Web 框架</td></tr>
+              <tr><td>uvicorn</td><td><code>0.27.0</code></td><td>本地 ASGI 服务</td></tr>
+              <tr><td>openai</td><td><code>1.10.0</code></td><td>OpenAI-compatible LLM SDK</td></tr>
+              <tr><td>httpx</td><td><code>&gt;=0.25,&lt;0.28</code></td><td>异步 HTTP 客户端，兼容 openai 1.x</td></tr>
+              <tr><td>pandas</td><td><code>&gt;=2.2.3</code></td><td>数据处理</td></tr>
+              <tr><td>openpyxl</td><td><code>&gt;=3.1.5</code></td><td>Excel 写入</td></tr>
+              <tr><td>PyMuPDF</td><td><code>&gt;=1.24.0</code></td><td>PDF 文本解析</td></tr>
+              <tr><td>pydantic</td><td><code>&gt;=2.9,&lt;3</code></td><td>配置与请求模型校验</td></tr>
             </tbody>
           </table>
         </div>
@@ -2567,16 +2579,18 @@
           <tbody>
             <tr><td><code>cites=XXXXX</code></td><td>Google Scholar 引用关系 ID，用于构造"引用了这篇论文"的列表 URL</td></tr>
             <tr><td><code>ScraperAPI</code></td><td>反爬 HTTP 代理服务，提供 IP 轮换、CAPTCHA 解决、地理节点选择等功能</td></tr>
-            <tr><td><code>extra_body</code></td><td>OpenAI SDK 的扩展字段，用于传递非标准参数（如 web_search_options）给兼容 API</td></tr>
             <tr><td><code>asyncio.Semaphore</code></td><td>Python 异步信号量，用于限制并发协程数量，避免超出 API 速率限制</td></tr>
             <tr><td><code>JSONL</code></td><td>JSON Lines 格式，每行一个 JSON 对象，便于流式写入和逐行读取大文件</td></tr>
-            <tr><td><code>rumps</code></td><td>Ridiculously Uncomplicated macOS Python Statusbar apps，macOS 菜单栏应用框架</td></tr>
             <tr><td><code>year_traverse</code></td><td>年份遍历模式，将整体查询按年份分解，绕过 Google Scholar 1000 篇硬限制</td></tr>
             <tr><td><code>dc_inconsistency</code></td><td>数据中心不一致，Google Scholar 不同地理节点的缓存不同步导致的短页面现象</td></tr>
-            <tr><td><code>SkillsRuntime</code></td><td>v1.0.6 新增的调度器，持有 SkillRegistry，接受 skill_name + config + log 构建 SkillContext 并 await skill.run()</td></tr>
+            <tr><td><code>SkillsRuntime</code></td><td>v2 任务调度器，持有 SkillRegistry，接受 skill_name + config + log 构建 SkillContext 并 await skill.run()</td></tr>
             <tr><td><code>SkillContext</code></td><td>Skill 运行时共享上下文 dataclass，持有 config、log callback、progress callback、cancel_check、extras</td></tr>
             <tr><td><code>SkillResult</code></td><td>Skill 返回的标准结果信封，包含 name（skill 标识）和 data（dict，传回 task_executor）</td></tr>
             <tr><td><code>Skill Protocol</code></td><td>Python structural subtyping 接口，任何含 name: str 和 async run(ctx, **kwargs) → SkillResult 的对象均满足</td></tr>
+            <tr><td><code>MetadataCollector</code></td><td>S2-first 的结构化元数据采集器，S2 命中后用 OpenAlex 补充，S2 未命中时回退 OpenAlex + arXiv</td></tr>
+            <tr><td><code>StructuredAuthorFetcher</code></td><td>可选 WOS 增强路径，按 WOS → S2 → PDF 合并作者列表与机构信息</td></tr>
+            <tr><td><code>PDFDownloader</code></td><td>多源 PDF 获取器，尝试 GS PDF、OpenAlex OA、S2、DBLP、Sci-Hub、arXiv、publisher、Unpaywall 与 CDP 浏览器路径</td></tr>
+            <tr><td><code>citing_description_scope</code></td><td>配置层定义的 Phase 4 范围字段；当前主路径尚未按该字段过滤输入，需要后续补齐</td></tr>
           </tbody>
         </table>
       </div>
@@ -2588,10 +2602,10 @@
 <footer class="footer">
   <div class="logo">CitationClaw</div>
   <p>
-    技术架构报告 &nbsp;·&nbsp; 面向开发者 &nbsp;·&nbsp; 2026年3月
+    技术架构报告 &nbsp;·&nbsp; 面向开发者 &nbsp;·&nbsp; 2026年5月
   </p>
   <p style="margin-top:8px;font-size:0.78rem;opacity:0.6;">
-    Python 3.12 &nbsp;·&nbsp; FastAPI &nbsp;·&nbsp; OpenAI-compatible LLM &nbsp;·&nbsp; BeautifulSoup4 &nbsp;·&nbsp; Pandas &nbsp;·&nbsp; rumps &nbsp;·&nbsp; ScraperAPI
+    Python 3.12 &nbsp;·&nbsp; FastAPI &nbsp;·&nbsp; OpenAI-compatible LLM &nbsp;·&nbsp; BeautifulSoup4 &nbsp;·&nbsp; Pandas &nbsp;·&nbsp; PyMuPDF &nbsp;·&nbsp; ScraperAPI
   </p>
   <p style="margin-top:24px;font-size:0.75rem;opacity:0.4;">
     本报告基于实际代码库生成，所有架构描述与实现细节均与源码对应。

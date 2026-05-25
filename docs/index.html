@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CitationClaw — 论文被引画像分析🦞</title>
-  <meta name="description" content="输入论文题目，一键获得完整的被引画像分析报告。自动爬取施引文献、识别著名学者、生成可视化 HTML 报告。">
+  <meta name="description" content="输入论文题目或 Google Scholar 主页，自动抓取施引文献、采集结构化作者元数据、提取 PDF 引文语境，并生成可分享的 HTML 被引画像报告。">
   <link rel="icon" href="assets/head_logo.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -138,7 +138,7 @@
     .hero-affil {
       font-size: 12.5px; color: var(--muted);
       display: flex; align-items: center; justify-content: center; gap: 6px;
-      margin-bottom: 28px;
+      margin-bottom: 4px;
     }
     .hero-affil svg { width: 14px; height: 14px; opacity: .6; }
     /* link buttons */
@@ -413,7 +413,14 @@
       display: block;
     }
     .example-card:hover { box-shadow: 0 6px 24px rgba(0,0,0,0.09); border-color: #93c5fd; }
-    .example-card img { width: 100%; display: block; }
+    .example-card img {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      object-fit: contain;
+      object-position: center;
+      background: #f8fafc;
+      display: block;
+    }
     .example-card-body {
       padding: 14px 18px;
       border-top: 1px solid var(--border);
@@ -438,6 +445,7 @@
       font-family: 'SFMono-Regular', Consolas, monospace;
       font-size: 13px;
       line-height: 1.9;
+      white-space: pre;
     }
     .code-block .cmt { color: #475569; }
     .code-block .cmd { color: #86efac; }
@@ -524,7 +532,7 @@
 <div class="hero">
   <div class="hero-tag">
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-    Citation Intelligence · beta v1.0.6
+    Citation Intelligence · v2.0.0
   </div>
   <h1>CitationClaw<br>论文被引画像分析🦞</h1>
   <p class="hero-subtitle">Paper Citation Portrait Analysis Agent</p>
@@ -534,19 +542,46 @@
     <div class="hero-slogan-en">Turning Every Citation into Explainable Impact</div>
   </div>
 
-  <div class="hero-authors">
-    <span>Qihao Yang</span>
+  <div class="hero-authors" style="font-weight:600">
+    <span>Qihao Yang (杨起豪)</span>
     <span class="sep">·</span>
-    <span>Ziqian Fan</span>
+    <span>Chunhao Zhang (张春浩)</span>
     <span class="sep">·</span>
-    <span>Ziyang Gong</span>
+    <span>Yifan Cheng (程依凡)</span>
     <span class="sep">·</span>
-    <span>Xue Yang<sup>†</sup></span>
+    <span>Ziyang Gong (龚子洋)</span>
+    <span class="sep">·</span>
+    <span>Caorui Li (李操瑞)</span>
+    <span class="sep">·</span>
+    <span>Zhanghan Xu (许张涵)</span>
+    <span class="sep">·</span>
+    <span>Tianyi Zhou (周天一)</span>
+    <span class="sep">·</span>
+    <span>Jiawei Lu (陆佳炜)</span>
+    <span class="sep">·</span>
+    <span>Ziqian Fan (樊子谦)</span>
+    <span class="sep">·</span>
+    <span>Yifan Zhou (周奕帆)</span>
+    <span class="sep">·</span>
+    <span>Yue Zhou (周越)</span>
+    <span class="sep">·</span>
+    <span>Zhihang Zhong (钟志航)</span>
+    <span class="sep">·</span>
+    <span>Xu Yang (杨旭)</span>
+    <span class="sep">·</span>
+    <span>Xin Tan (谭鑫)</span>
+    <span class="sep">·</span>
+    <span style="position:relative">Xue Yang (杨学)<sup style="font-size:8.5px;margin-left:2px;font-weight:700;letter-spacing:.02em;vertical-align:super">Project Leader</sup></span>
   </div>
-  <div style="font-size:12px;color:var(--muted);margin-bottom:16px"><sup>†</sup> Project Leader</div>
   <div class="hero-affil">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-    <span>上海交通大学 VisionXLab@RethinkLab · Shanghai Jiao Tong University</span>
+    <span>Shanghai Jiao Tong University · East China Normal University · Southeast University</span>
+  </div>
+  <div style="font-size:11.5px;color:var(--muted);margin-bottom:2px">
+    SJTU VisionXLab@RethinkLab &nbsp;·&nbsp; ECNU & SH AI Lab DMCV &nbsp;·&nbsp; SEU PALM Lab
+  </div>
+  <div style="font-size:13px;color:var(--accent);font-weight:500;margin-bottom:16px">
+    Sponsored by <strong>Keyu Chen (陈柯宇)</strong>
   </div>
 
   <div class="hero-buttons">
@@ -573,6 +608,18 @@
 </div>
 
 <!-- ─────────────────────────────────────────
+     PROMO VIDEO
+───────────────────────────────────────── -->
+<div style="max-width:var(--max-wide);margin:40px auto 0;padding:0 32px">
+  <p style="font-size:13.5px;color:var(--muted);text-align:center;margin-bottom:16px;font-style:italic">
+    <strong style="color:var(--text)">Promo Video</strong> — 50 秒了解 CitationClaw v2 全部核心能力
+  </p>
+  <div style="border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.09)">
+    <video src="assets/promo.mp4" style="width:100%;display:block" controls muted playsinline></video>
+  </div>
+</div>
+
+<!-- ─────────────────────────────────────────
      TEASER
 ───────────────────────────────────────── -->
 <div class="teaser-section">
@@ -591,8 +638,8 @@
 ───────────────────────────────────────── -->
 <div class="tldr-strip">
   <p>
-    <strong>输入论文题目</strong>，CitationClaw 自动爬取所有施引文献、识别院士 / Fellow 等著名学者并搜索引用原句，<br>
-    最终生成一份含关键词云、引用趋势、国家分布、学者画像的 <strong>精美 HTML 报告</strong>，单文件可直接分享。
+    <strong>输入论文题目或 Google Scholar 学者主页</strong>，CitationClaw 自动抓取施引文献、采集结构化作者元数据、识别院士 / Fellow 等著名学者并提取 PDF 引文语境，<br>
+    最终生成一份含关键词云、引用趋势、国家/机构分布、学者画像、引用原句和报告助手的 <strong>自包含 HTML 报告</strong>。
   </p>
 </div>
 
@@ -618,12 +665,12 @@
         <button class="slide-nav-btn" data-slide="1" onclick="goSlide(1)">
           <div class="snb-step">Step 2</div>
           <div class="snb-title">配置 API</div>
-          <div class="snb-desc">填入 ScraperAPI Key 与 OpenAI 兼容 API Key，支持 V-API 等</div>
+          <div class="snb-desc">配置 ScraperAPI、Search LLM、轻量模型和可选结构化 API</div>
         </button>
         <button class="slide-nav-btn" data-slide="2" onclick="goSlide(2)">
           <div class="snb-step">Step 3</div>
           <div class="snb-title">选择分析层级</div>
-          <div class="snb-desc">全面版 / 进阶版 / 标准版，按需平衡深度与成本</div>
+          <div class="snb-desc">基础服务 / 进阶服务 / 全面服务，按需平衡深度与成本</div>
         </button>
         <button class="slide-nav-btn" data-slide="3" onclick="goSlide(3)">
           <div class="snb-step">Step 4</div>
@@ -636,7 +683,7 @@
       <div class="slide-panel">
         <div class="slide active" id="slide-0">
           <div class="slide-img-wrap">
-            <img src="assets/ui-main.png" alt="Step 1 — 输入论文题目界面">
+            <img src="assets/ui-step1.png" alt="Step 1 — 输入论文题目界面">
           </div>
           <p class="slide-caption">分析界面：支持直接输入题目，或从 Google Scholar 学者主页批量导入 · 支持同时分析多篇</p>
         </div>
@@ -644,17 +691,17 @@
           <div class="slide-img-wrap">
             <img src="assets/ui-main.png" alt="Step 2 — API 配置">
           </div>
-          <p class="slide-caption">API 配置区：填入 ScraperAPI Key 与 LLM API Key，支持任意 OpenAI 兼容服务，点击开始分析即自动保存</p>
+          <p class="slide-caption">API 配置区：Search LLM 负责联网核验，轻量模型负责报告生成和引文语境抽取；内置模型预检和服务商快捷填充</p>
         </div>
         <div class="slide" id="slide-2">
           <div class="slide-img-wrap">
             <img src="assets/ui-main.png" alt="Step 3 — 选择分析层级">
           </div>
-          <p class="slide-caption">服务层级选择：从全面版（逐篇引用描述）到标准版（只需统计画像），灵活控制 token 消耗</p>
+          <p class="slide-caption">服务层级选择：Basic 用于低成本验证，Advanced / Full 开启 PDF-grounded 引文语境提取，按需平衡深度与成本</p>
         </div>
         <div class="slide" id="slide-3">
           <div class="slide-img-wrap">
-            <img src="assets/teaser-charts.png" alt="Step 4 — 被引画像报告">
+            <img src="assets/ui-step4.png" alt="Step 4 — 被引画像报告">
           </div>
           <p class="slide-caption">输出报告：关键词云 · 引用趋势预测 · 国家/机构分布 · 著名学者列表 · 引用原句 · 综合 Insight</p>
         </div>
@@ -679,10 +726,153 @@
       <h2 class="section-title">What is CitationClaw?</h2>
     </div>
     <div class="abstract-box">
-      CitationClaw 是一款面向科研人员的论文被引画像分析🦞。只需输入论文题目（或从 Google Scholar 学者主页批量导入），系统将自动完成：<strong>爬取所有施引文献</strong>、<strong>识别著名学者背景</strong>（院士、Fellow、杰青、长江学者等）、<strong>精准检索引用原句</strong>，最终生成一份包含关键词云、引用趋势预测、国家/机构分布、学者画像等多维可视化内容的精美 HTML 报告——无需服务器，单文件即可分享。
+      CitationClaw 是一款面向科研人员的论文被引画像分析🦞。只需输入论文题目（或从 Google Scholar 学者主页批量导入），系统将自动完成：<strong>爬取所有施引文献</strong>、<strong>通过 OpenAlex / Semantic Scholar / arXiv / Web of Science 采集结构化作者元数据</strong>、<strong>识别著名学者背景</strong>（院士、Fellow、杰青、长江学者等）、<strong>从 PDF 中提取引用原句</strong>，最终生成一份包含关键词云、引用趋势预测、国家/机构分布、学者画像、引文语境和报告内问答的 HTML 报告——无需服务器，单文件即可分享。
       <br><br>
-      CitationClaw is a paper citation portrait analysis agent for researchers. Given a paper title or Google Scholar profile URL, it automatically crawls all citing papers, identifies renowned scholars (academicians, IEEE/ACM Fellows, etc.), retrieves citation sentences, and produces a fully self-contained, shareable HTML portrait report. In v1.0.6, CitationClaw introduces a Skills Runtime that modularizes its five-phase pipeline into independently deployable skill modules.
+      CitationClaw is a paper citation portrait analysis agent for researchers. Given a paper title or Google Scholar profile URL, it crawls citing papers, collects structured metadata from academic APIs, verifies renowned scholars with search-capable LLMs, extracts PDF-grounded citation contexts with lightweight models, and produces a fully self-contained, shareable HTML portrait report with charts and an in-report assistant.
     </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────
+     BENCHMARK
+───────────────────────────────────────── -->
+<section id="benchmark" style="border-top:1px solid var(--border)">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-label">Benchmark · 评测对比</div>
+      <h2 class="section-title">v1 vs v2 Performance</h2>
+      <p class="section-desc">基于人工标注 Ground Truth 的五维定量评测，总分为加权求和</p>
+    </div>
+
+    <!-- overall highlight -->
+    <div style="display:flex;gap:20px;margin-bottom:36px;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px;text-align:center;padding:28px 20px;border-radius:12px;border:1.5px solid var(--border);background:var(--bg-alt)">
+        <div style="font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">v1 Overall</div>
+        <div style="font-size:36px;font-weight:700;color:var(--muted);letter-spacing:-.02em">42.33</div>
+      </div>
+      <div style="flex:1;min-width:200px;text-align:center;padding:28px 20px;border-radius:12px;border:1.5px solid var(--accent);background:linear-gradient(135deg,#eff6ff 0%,#dbeafe 100%)">
+        <div style="font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:8px">v2 Overall</div>
+        <div style="font-size:36px;font-weight:700;color:var(--accent);letter-spacing:-.02em">68.98</div>
+      </div>
+      <div style="flex:1;min-width:200px;text-align:center;padding:28px 20px;border-radius:12px;border:1.5px solid #22c55e;background:linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%)">
+        <div style="font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#16a34a;margin-bottom:8px">Improvement</div>
+        <div style="font-size:36px;font-weight:700;color:#16a34a;letter-spacing:-.02em">+26.65</div>
+      </div>
+    </div>
+
+    <!-- dimension bars -->
+    <div style="display:flex;flex-direction:column;gap:18px">
+
+      <!-- Author -->
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+          <div style="font-size:13.5px;font-weight:600">Author <span style="font-weight:400;color:var(--muted);font-size:12px">— 作者姓名匹配 (F1)、机构准确率与覆盖率</span></div>
+          <div style="font-size:13px;font-weight:600;color:#16a34a">+11.51</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <div style="flex:1;height:22px;background:#f3f4f6;border-radius:6px;overflow:hidden;position:relative">
+            <div style="width:75.51%;height:100%;background:#d1d5db;border-radius:6px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;font-size:11px;font-weight:600;color:#6b7280">75.51</div>
+          </div>
+          <div style="flex:1;height:22px;background:#eff6ff;border-radius:6px;overflow:hidden;position:relative">
+            <div style="width:87.02%;height:100%;background:var(--accent);border-radius:6px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;font-size:11px;font-weight:600;color:#fff">87.02</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scholar -->
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+          <div style="font-size:13.5px;font-weight:600">Scholar <span style="font-weight:400;color:var(--muted);font-size:12px">— 院士 / Fellow 等知名学者识别命中率</span></div>
+          <div style="font-size:13px;font-weight:600;color:#16a34a">+5.02</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <div style="flex:1;height:22px;background:#f3f4f6;border-radius:6px;overflow:hidden;position:relative">
+            <div style="width:73.55%;height:100%;background:#d1d5db;border-radius:6px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;font-size:11px;font-weight:600;color:#6b7280">73.55</div>
+          </div>
+          <div style="flex:1;height:22px;background:#eff6ff;border-radius:6px;overflow:hidden;position:relative">
+            <div style="width:78.57%;height:100%;background:var(--accent);border-radius:6px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;font-size:11px;font-weight:600;color:#fff">78.57</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PDF -->
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+          <div style="font-size:13.5px;font-weight:600">PDF <span style="font-weight:400;color:var(--muted);font-size:12px">— PDF 成功下载并可解析的比例</span></div>
+          <div style="font-size:13px;font-weight:600;color:#16a34a">+74.43</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <div style="flex:1;height:22px;background:#f3f4f6;border-radius:6px;overflow:hidden;position:relative">
+            <div style="width:2%;height:100%;background:#d1d5db;border-radius:6px"></div>
+            <span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);font-size:11px;font-weight:600;color:#9ca3af">0</span>
+          </div>
+          <div style="flex:1;height:22px;background:#eff6ff;border-radius:6px;overflow:hidden;position:relative">
+            <div style="width:74.43%;height:100%;background:var(--accent);border-radius:6px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;font-size:11px;font-weight:600;color:#fff">74.43</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Citation -->
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+          <div style="font-size:13.5px;font-weight:600">Citation <span style="font-weight:400;color:var(--muted);font-size:12px">— 引文原句与 GT 的语义相似度（LLM 评判）</span></div>
+          <div style="font-size:13px;font-weight:600;color:#16a34a">+32.45</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <div style="flex:1;height:22px;background:#f3f4f6;border-radius:6px;overflow:hidden;position:relative">
+            <div style="width:13.81%;height:100%;background:#d1d5db;border-radius:6px"></div>
+            <span style="position:absolute;left:calc(13.81% + 6px);top:50%;transform:translateY(-50%);font-size:11px;font-weight:600;color:#9ca3af">13.81</span>
+          </div>
+          <div style="flex:1;height:22px;background:#eff6ff;border-radius:6px;overflow:hidden;position:relative">
+            <div style="width:46.26%;height:100%;background:var(--accent);border-radius:6px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;font-size:11px;font-weight:600;color:#fff">46.26</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Data Source -->
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+          <div style="font-size:13.5px;font-weight:600">Data Source <span style="font-weight:400;color:var(--muted);font-size:12px">— 元数据完整性与正确性</span></div>
+          <div style="font-size:13px;font-weight:600;color:#16a34a">+4.90</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <div style="flex:1;height:22px;background:#f3f4f6;border-radius:6px;overflow:hidden;position:relative">
+            <div style="width:75.92%;height:100%;background:#d1d5db;border-radius:6px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;font-size:11px;font-weight:600;color:#6b7280">75.92</div>
+          </div>
+          <div style="flex:1;height:22px;background:#eff6ff;border-radius:6px;overflow:hidden;position:relative">
+            <div style="width:80.82%;height:100%;background:var(--accent);border-radius:6px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;font-size:11px;font-weight:600;color:#fff">80.82</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- legend -->
+    <div style="display:flex;gap:20px;justify-content:center;margin-top:20px;font-size:12px;color:var(--muted)">
+      <div style="display:flex;align-items:center;gap:5px"><div style="width:12px;height:12px;border-radius:3px;background:#d1d5db"></div> v1</div>
+      <div style="display:flex;align-items:center;gap:5px"><div style="width:12px;height:12px;border-radius:3px;background:var(--accent)"></div> v2</div>
+    </div>
+
+    <!-- key takeaways -->
+    <div style="margin-top:32px;padding:20px 24px;border-radius:10px;background:var(--bg-alt);border:1px solid var(--border)">
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px">Key Takeaways</div>
+      <ul style="font-size:13px;color:#374151;line-height:1.8;padding-left:18px;margin:0">
+        <li><strong>Citation (+32.45)</strong> — v1 输出解释性摘要，v2 从 PDF 正文提取实际引用句，语义匹配度大幅提升</li>
+        <li><strong>PDF (+74.43)</strong> — v1 无 PDF 下载解析能力，v2 新增 12 级下载级联与 ScraperAPI 出版商通道</li>
+        <li><strong>Author (+11.51)</strong> — 结构化 API（OpenAlex / S2 / WOS）替代纯 LLM 提取，配合 PDF 回退补全</li>
+        <li><strong>Scholar (+5.02)</strong> — 规则预过滤 + 缓存复用减少漏识别</li>
+      </ul>
+    </div>
+
+    <!-- Cost highlight -->
+    <div style="margin-top:20px;padding:18px 28px;border-radius:10px;background:linear-gradient(135deg,#eff6ff 0%,#dbeafe 100%);border:1.5px solid var(--accent);display:flex;align-items:center;gap:14px">
+      <div style="font-size:24px;flex-shrink:0">⚡</div>
+      <p style="font-size:14.5px;color:#1e3a5f;line-height:1.6;margin:0;font-weight:500">
+        <strong style="color:var(--accent)">Cost Efficiency</strong> &mdash; v2 reduces LLM token consumption to approximately <strong>1/5</strong> of v1, while achieving higher scores across all dimensions.
+        <span style="color:var(--muted);font-weight:400"> · v2 的 LLM Token 消耗量仅为 v1 的约五分之一，同时在所有维度上取得更高分数。</span>
+      </p>
+    </div>
+
   </div>
 </section>
 
@@ -698,9 +888,14 @@
     </div>
     <div class="features-grid">
       <div class="feature-card">
+        <span class="feature-icon">🧠</span>
+        <div class="feature-title">结构化元数据优先</div>
+        <div class="feature-desc">优先使用 OpenAlex、Semantic Scholar、arXiv、Web of Science 等来源采集作者、机构、DOI、年份和开放获取信息，减少完全依赖 LLM 检索的不稳定。</div>
+      </div>
+      <div class="feature-card">
         <span class="feature-icon">🎓</span>
         <div class="feature-title">著名学者自动识别</div>
-        <div class="feature-desc">自动识别中国科学院/工程院院士、IEEE/ACM/ACL Fellow、国家杰青、长江学者等重量级学者，颜色标注高亮，重要引用一目了然。</div>
+        <div class="feature-desc">通过规则预过滤、缓存复用和 Search LLM 联网核验，识别中国科学院/工程院院士、IEEE/ACM/ACL Fellow、国家杰青、长江学者等重量级学者。</div>
       </div>
       <div class="feature-card">
         <span class="feature-icon">📊</span>
@@ -709,13 +904,13 @@
       </div>
       <div class="feature-card">
         <span class="feature-icon">🔍</span>
-        <div class="feature-title">引用原句精准检索</div>
-        <div class="feature-desc">对施引文献逐篇搜索引用原句，定位所在章节（引言/相关工作/方法/实验），支持 Markdown 渲染展示，可展开查看。</div>
+        <div class="feature-title">PDF 引文语境提取</div>
+        <div class="feature-desc">复用 Phase 2 已下载 PDF，结合 MinerU / PyMuPDF 解析正文，定位引用原句、参考文献条目、章节位置和态度，并记录 PDF 来源与失败原因。</div>
       </div>
       <div class="feature-card">
         <span class="feature-icon">🔁</span>
         <div class="feature-title">断点续爬 · 缓存复用</div>
-        <div class="feature-desc">任务中断后可从断点继续，已消耗额度不浪费；已搜索过的学者信息自动缓存，多次分析相同文献无需重复调用 LLM。</div>
+        <div class="feature-desc">作者信息、PDF、解析结果和引文描述跨运行缓存；任务中断后可继续抓取，也可基于已有缓存快速重建 HTML 报告。</div>
       </div>
       <div class="feature-card">
         <span class="feature-icon">📈</span>
@@ -724,22 +919,40 @@
       </div>
       <div class="feature-card">
         <span class="feature-icon">🤖</span>
-        <div class="feature-title">LLM 综合 Insight</div>
-        <div class="feature-desc">自动生成四维结构化总结——引用规模与分布、主要用途、代表性原文摘录、综合说明，支持任意 OpenAI 兼容 API。</div>
+        <div class="feature-title">Search / Light 模型分离</div>
+        <div class="feature-desc">联网核验交给 Search LLM，报告生成和引文语境抽取交给轻量模型；支持 OpenAI 兼容接口、服务商快捷填充和模型预检。</div>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">⚙️</span>
+        <div class="feature-title">三档服务层级</div>
+        <div class="feature-desc">Basic 低成本验证学者影响力，Advanced 面向重要施引论文的语境理解，Full 输出最完整引用画像，按场景平衡深度、时间和成本。</div>
       </div>
       <div class="feature-card">
         <span class="feature-icon">🧩</span>
         <div class="feature-title">Skills 模块化运行时</div>
-        <div class="feature-desc">v1.0.6 引入 Skills Runtime，将五个分析阶段封装为独立 Skill 模块（CitationFetch、AuthorIntel、Export、CitationDesc、ReportGenerate），统一由 SkillsRuntime 调度，每个 Skill 共享配置上下文，支持独立扩展与替换。</div>
+        <div class="feature-desc">v2 引入 Skills Runtime，将施引文献检索、结构化元数据采集、学者影响力评估、PDF 引文语境提取和报告生成封装为独立 Skill，由 SkillsRuntime 统一调度，每个 Skill 共享配置上下文，支持独立扩展与替换。</div>
       </div>
       <div class="feature-card">
         <span class="feature-icon">💬</span>
         <div class="feature-title">双端 AI 智能助手</div>
-        <div class="feature-desc">主界面内置使用助手（操作引导），分析报告内置智能问答助手（基于报告数据）；报告助手支持联网搜索智能路由：自动判断是否需要实时信息，按需切换联网搜索模式。</div>
+        <div class="feature-desc">主界面内置使用助手，分析报告内置基于报告数据的问答助手；当问题需要实时信息时，系统可自动路由到联网搜索模式。</div>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">📚</span>
+        <div class="feature-title">Scholar 主页批量导入</div>
+        <div class="feature-desc">粘贴 Google Scholar 学者主页即可抓取论文列表，勾选后批量加入分析队列；也支持直接输入题目和多篇论文同时分析。</div>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">💳</span>
+        <div class="feature-title">费用与进度追踪</div>
+        <div class="feature-desc">运行中通过 WebSocket 展示阶段进度和实时日志；配置额度查询信息后，可在任务结束时查看 ScraperAPI 与 LLM 消耗摘要。</div>
       </div>
     </div>
   </div>
 </section>
+
+<!-- ─────────────────────────────────────────
+     PIPELINE
 ───────────────────────────────────────── -->
 <section id="pipeline" style="border-top:1px solid var(--border)">
   <div class="container">
@@ -751,7 +964,7 @@
       <div class="pipeline-step">
         <div class="step-num">1</div>
         <div class="step-title">配置 API</div>
-        <div class="step-desc">填入 ScraperAPI Key 与 OpenAI 兼容 API Key，点击开始即自动保存。</div>
+        <div class="step-desc">填入 ScraperAPI、Search LLM 和轻量模型配置，可选 S2/WOS/MinerU/CDP，点击开始即自动保存。</div>
       </div>
       <div class="pipeline-step">
         <div class="step-num">2</div>
@@ -761,12 +974,12 @@
       <div class="pipeline-step">
         <div class="step-num">3</div>
         <div class="step-title">选择层级</div>
-        <div class="step-desc">从全面版到标准版，按需平衡分析深度与 token 消耗，开始分析。</div>
+        <div class="step-desc">在 Basic / Advanced / Full 三档之间选择，按需平衡分析深度与 token 消耗，开始分析。</div>
       </div>
       <div class="pipeline-step">
         <div class="step-num">4</div>
         <div class="step-title">等待分析</div>
-        <div class="step-desc">系统自动依次执行五个分析阶段，Skills Runtime 调度各模块完成全流程。</div>
+        <div class="step-desc">系统自动执行施引检索、结构化元数据采集、学者评估、PDF 引文语境提取和报告生成。</div>
       </div>
       <div class="pipeline-step">
         <div class="step-num">5</div>
@@ -804,11 +1017,6 @@
           <div class="example-card-link">在线查看 →</div>
         </div>
       </a>
-    </div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:20px;justify-content:center">
-      <a href="https://visionxlab.github.io/CitationClaw/use-report.html" target="_blank" class="btn btn-outline btn-sm">📖 用户深度使用报告</a>
-      <a href="https://visionxlab.github.io/CitationClaw/technical-report.html" target="_blank" class="btn btn-outline btn-sm">🔧 技术架构报告</a>
-    </div>
   </div>
 </section>
 
@@ -847,7 +1055,7 @@
 <span class="cmd">pip</span> <span class="arg">install -r requirements.txt</span>
 
 <span class="cmt"># 3. 启动  Start the web app → http://127.0.0.1:8000</span>
-<span class="cmd">python</span> <span class="arg">start.py</span></div>
+<span class="cmd">python</span> <span class="arg">-m citationclaw</span></div>
   </div>
 </section>
 
@@ -862,13 +1070,19 @@
     </div>
     <div class="community-row">
       <div class="comm-card">
-        <h3>用户交流群</h3>
-        <p>扫码加入用户交流群，获取最新动态、交流使用心得，支持<strong>人工代查</strong>咨询。</p>
-        <img src="assets/group.jpg" alt="用户交流群二维码">
-        <p style="font-size:12px;color:var(--muted);text-align:center">扫码加入 · Scan to Join</p>
-        <p style="font-size:13px;color:var(--muted);margin-top:12px">如群已满，请添加个人微信，邀请进群：</p>
-        <p style="font-size:12px;color:var(--muted)">If the group is full, add this WeChat to be invited:</p>
-        <img src="assets/personal_wc.jpg" alt="个人微信二维码" style="max-width:160px;margin-top:4px">
+        <h3>加入交流群</h3>
+        <p>扫码加入用户交流群，获取最新动态、交流使用心得。如二维码过期，请添加个人微信邀请进群。</p>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Scan to join. If expired, add personal WeChat to be invited.</p>
+        <div style="display:flex;gap:16px;justify-content:center;align-items:flex-start">
+          <div style="text-align:center">
+            <img src="assets/group.jpg" alt="用户交流群二维码">
+            <p style="font-size:11px;color:var(--muted);margin-top:4px">交流群 · Group</p>
+          </div>
+          <div style="text-align:center">
+            <img src="assets/personal_wc.jpg" alt="个人微信二维码">
+            <p style="font-size:11px;color:var(--muted);margin-top:4px">个人微信 · Personal</p>
+          </div>
+        </div>
       </div>
       <div class="comm-card">
         <div class="badge-soon">Coming Soon</div>
@@ -893,12 +1107,17 @@
       <p class="section-desc">如果本工具对您的研究有所帮助，欢迎引用</p>
     </div>
     <div class="bibtex"><span class="bkey">@software</span>{citationclaw2026,
-  <span class="bkey">title</span>     = {<span class="bval">CitationClaw: Paper Citation Portrait Analysis Agent</span>},
-  <span class="bkey">author</span>    = {<span class="bval">Yang, Qihao and Fan, Ziqian and Gong, Ziyang and Yang, Xue</span>},
-  <span class="bkey">year</span>      = {<span class="bval">2026</span>},
-  <span class="bkey">url</span>       = {<span class="bval">https://github.com/VisionXLab/CitationClaw</span>},
-  <span class="bkey">institution</span>= {<span class="bval">Shanghai Jiao Tong University, VisionXLab</span>}
+  <span class="bkey">title</span>       = {<span class="bval">CitationClaw: Turning Every Citation into Explainable Impact</span>},
+  <span class="bkey">author</span>      = {<span class="bval">Yang, Qihao and Zhang, Chunhao and Cheng, Yifan and Gong, Ziyang and Li, Caorui and Xu, Zhanghan and Zhou, Tianyi and Lu, Jiawei and Fan, Ziqian and Zhou, Yifan and Zhou, Yue and Zhong, Zhihang and Yang, Xu and Tan, Xin and Yang, Xue</span>},
+  <span class="bkey">year</span>        = {<span class="bval">2026</span>},
+  <span class="bkey">url</span>         = {<span class="bval">https://github.com/VisionXLab/CitationClaw</span>},
+  <span class="bkey">institution</span> = {<span class="bval">Shanghai Jiao Tong University, East China Normal University, Southeast University</span>}
 }</div>
+    <div style="margin-top:24px;padding:16px 22px;border-radius:10px;background:linear-gradient(135deg,#eff6ff 0%,#dbeafe 100%);border:1.5px solid var(--accent);display:flex;align-items:center;gap:12px">
+      <p style="font-size:14px;color:#1e3a5f;line-height:1.6;margin:0">
+        <strong style="color:var(--accent)">Acknowledgment</strong> &mdash; Special thanks to <strong style="color:var(--accent-dark)">Keyu Chen (陈柯宇)</strong> for generously sponsoring the compute and API resources that made this project possible.
+      </p>
+    </div>
   </div>
 </section>
 
@@ -910,9 +1129,9 @@
     CitationClaw &nbsp;·&nbsp;
     <a href="https://github.com/VisionXLab/CitationClaw" target="_blank">GitHub</a> &nbsp;·&nbsp;
     <a href="https://www.reduct.cn/" target="_blank">减论</a> &nbsp;·&nbsp;
-    上海交通大学 VisionXLab@RethinkLab
+    SJTU VisionXLab &nbsp;·&nbsp; ECNU DMCV &nbsp;·&nbsp; SEU PALM
   </p>
-  <p>Qihao Yang · Ziqian Fan · Ziyang Gong · Xue Yang &nbsp;·&nbsp; beta v1.0.6 &nbsp;·&nbsp; 2026</p>
+  <p>v2.0.0 &nbsp;·&nbsp; 2026</p>
 </footer>
 
 <script>

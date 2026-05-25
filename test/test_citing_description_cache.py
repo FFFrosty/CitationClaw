@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import asyncio
 import json
 import pytest
-from core.citing_description_cache import CitingDescriptionCache
+from citationclaw.core.citing_description_cache import CitingDescriptionCache
 
 
 def run(coro):

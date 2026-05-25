@@ -5,6 +5,7 @@ from typing import Callable, Optional
 from openai import AsyncOpenAI
 import httpx
 from citationclaw.core.author_cache import AuthorInfoCache
+from citationclaw.core.structured_author_fetcher import StructuredAuthorFetcher
 
 
 class AuthorSearcher:
@@ -27,6 +28,9 @@ class AuthorSearcher:
         target_paper_authors: Optional[str] = None,
         author_cache: Optional[AuthorInfoCache] = None,
         cancel_event: Optional[asyncio.Event] = None,
+        wos_api_key: str = "",
+        s2_api_key: str = "",
+        mineru_api_token: str = "",
     ):
         """
         作者学术信息搜索器
@@ -47,7 +51,8 @@ class AuthorSearcher:
         # 根据API文档建议，支持高并发（最高2000）
         try:
             # 配置httpx连接池限制，避免TCP连接积累
-            http_client = httpx.AsyncClient(
+            self._http_client = httpx.AsyncClient(
+                trust_env=False,
                 limits=httpx.Limits(
                     max_connections=100,      # 最大连接数
                     max_keepalive_connections=20,  # 保持活跃的连接数
@@ -59,17 +64,19 @@ class AuthorSearcher:
             self.client = AsyncOpenAI(
                 api_key=api_key,
                 base_url=base_url,
-                http_client=http_client,
+                http_client=self._http_client,
                 max_retries=2
             )
         except Exception as e:
-            self.log_callback(f"初始化AsyncOpenAI客户端失败: {e}")
+            self._http_client = None
+            log_callback(f"初始化AsyncOpenAI客户端失败: {e}")
             # 尝试不带自定义http_client的初始化（兼容某些API中转平台）
             self.client = AsyncOpenAI(
                 api_key=api_key,
                 base_url=base_url,
                 timeout=30.0,
-                max_retries=2
+                max_retries=2,
+                http_client=httpx.AsyncClient(trust_env=False, timeout=30.0),
             )
 
         self.model = model
@@ -87,6 +94,27 @@ class AuthorSearcher:
         # 作者信息持久化缓存
         self.author_cache: Optional[AuthorInfoCache] = author_cache
         self.cancel_event: Optional[asyncio.Event] = cancel_event
+
+        # 结构化作者提取（WOS→S2→MinerU），有 wos_api_key 或 s2_api_key 时启用
+        self.structured_fetcher: Optional[StructuredAuthorFetcher] = None
+        if wos_api_key or s2_api_key:
+            self.structured_fetcher = StructuredAuthorFetcher(
+                wos_api_key=wos_api_key,
+                s2_api_key=s2_api_key,
+                mineru_api_token=mineru_api_token,
+                openai_api_key=api_key,
+                openai_base_url=base_url,
+                model=model,
+                log_callback=log_callback,
+            )
+            sources = []
+            if wos_api_key:
+                sources.append("WOS")
+            if s2_api_key:
+                sources.append("S2")
+            log_callback(f"📋 结构化作者提取已启用：{'→'.join(sources)}→MinerU")
+        else:
+            log_callback("⚪ 结构化作者提取未启用（未配置 WOS/S2 API Key）")
 
         # 自引检测 Prompt（使用轻量级模型）
         self.self_citation_check_prompt = (
@@ -130,7 +158,6 @@ class AuthorSearcher:
             "国家\n"
             "职务（在行政单位或著名研究机构的职务或职称）\n"
             "荣誉称号（所获得的学术头衔或国际重量级头衔）\n"
-            
             "直至所有的重量级作者都被记录下来。记住，无需任何前言后记。")
 
         self.renowned_scholar_formatoutput_prompt = (
@@ -145,7 +172,6 @@ class AuthorSearcher:
             "    \"职务\": \"作者所担任的职务\",\n"
             "    \"荣誉称号\":  \"作者所获取的重量级头衔\",\n"
             " }"
-            
             "记住：不要任何前言后记。")
 
         # 作者信息校验配置
@@ -165,283 +191,148 @@ class AuthorSearcher:
             "7. 若无法找到任何可信来源，请明确说明\"未检索到可信来源支持该信息\"，禁止基于推测补充信息。"
         )
 
-    async def search_fn(self, query: str, retry_count: int = 0, max_retries: int = 5, log_prefix: str = "", quota_retry_count: int = 0) -> str:
+    async def close(self):
+        """关闭底层 httpx 客户端，释放连接池资源。"""
+        if self._http_client is not None:
+            await self._http_client.aclose()
+
+    # ── Unified LLM call with retry / backoff / quota handling ──────────
+    async def _call_llm(
+        self,
+        messages: list[dict],
+        *,
+        model: str | None = None,
+        response_format: dict | None = None,
+        extra_body: dict | None = None,
+        temperature: float = 0.1,
+        max_retries: int = 5,
+        log_prefix: str = "",
+        debug_label: str = "LLM",
+    ) -> str:
+        """Unified LLM call with retry, backoff, and quota handling.
+
+        Returns the assistant message content on success, or ``'ERROR'`` after
+        all retries are exhausted.
         """
-        调用搜索模型（启用web搜索）
+        resolved_model = model or self.model
+        quota_failures = 0
 
-        Args:
-            query: 查询内容
-            retry_count: 当前重试次数
-            max_retries: 最大重试次数
+        for attempt in range(max_retries):
+            try:
+                if self.debug_mode:
+                    self.log_callback(f"🔍 [DEBUG] 发送{debug_label}请求 (模型: {resolved_model})")
+                    if messages:
+                        self.log_callback(f"🔍 [DEBUG] 请求内容: {messages[-1]['content'][:200]}...")
 
-        Returns:
-            搜索结果,失败返回'ERROR'
-        """
-        try:
-            # 使用AsyncOpenAI的原生async调用，无需run_in_executor
-            if self.debug_mode:
-                self.log_callback(f"🔍 [DEBUG] 发送搜索请求 (模型: {self.model})")
-                self.log_callback(f"🔍 [DEBUG] 请求内容: {query[:200]}...")
+                kwargs: dict = {
+                    "model": resolved_model,
+                    "messages": messages,
+                }
+                # Only pass temperature when not using json_object response_format
+                # (some providers reject temperature with structured output)
+                if response_format is None:
+                    kwargs["temperature"] = temperature
+                if response_format is not None:
+                    kwargs["response_format"] = response_format
+                if extra_body is not None:
+                    kwargs["extra_body"] = extra_body
 
-            completion = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": query}],
-                temperature=0.1,
-                extra_body={"web_search_options": {}}  # 启用web搜索
-            )
-            response = completion.choices[0].message.content
+                completion = await self.client.chat.completions.create(**kwargs)
+                response = completion.choices[0].message.content
 
-            if self.debug_mode:
-                self.log_callback(f"✅ [DEBUG] 搜索响应: {response[:200]}...")
+                if self.debug_mode:
+                    self.log_callback(f"✅ [DEBUG] {debug_label}响应: {response[:200]}...")
 
-            return response
-        except Exception as e:
-            error_msg = str(e).lower()
+                return response
 
-            if self.debug_mode:
-                self.log_callback(f"❌ [DEBUG] 搜索API异常: {type(e).__name__}: {e}")
+            except Exception as e:
+                error_msg = str(e).lower()
 
-            # 检查是否是配额限制错误
-            if 'rate' in error_msg or 'quota' in error_msg or 'limit' in error_msg:
-                if quota_retry_count >= 3:
-                    self.log_callback("❌ API配额持续不足，已停止重试。")
-                    if self.cancel_event:
-                        self.cancel_event.set()
-                    return 'ERROR'
-                # If another concurrent task already hit quota limit, exit immediately without waiting
-                if self.cancel_event and self.cancel_event.is_set():
-                    return 'ERROR'
-                self.log_callback(f"⚠️ API配额超限，60秒后重试（第{quota_retry_count + 1}/3次）...")
-                if self.cancel_event:
-                    try:
-                        await asyncio.wait_for(asyncio.shield(self.cancel_event.wait()), timeout=60)
+                if self.debug_mode:
+                    self.log_callback(f"❌ [DEBUG] {debug_label}API异常: {type(e).__name__}: {e}")
+
+                # ── Quota / rate-limit errors ────────────────────────────
+                if 'rate' in error_msg or 'quota' in error_msg or 'limit' in error_msg:
+                    quota_failures += 1
+                    if quota_failures >= 3:
+                        self.log_callback("❌ API配额持续不足，已停止重试。")
+                        if self.cancel_event:
+                            self.cancel_event.set()
                         return 'ERROR'
-                    except asyncio.TimeoutError:
-                        pass
-                else:
-                    await asyncio.sleep(60)
-                return await self.search_fn(query, retry_count, max_retries, log_prefix, quota_retry_count + 1)
+                    # If another concurrent task already hit quota limit, exit immediately
+                    if self.cancel_event and self.cancel_event.is_set():
+                        return 'ERROR'
+                    self.log_callback(f"⚠️ API配额超限，60秒后重试（第{quota_failures}/3次）...")
+                    if self.cancel_event:
+                        try:
+                            await asyncio.wait_for(asyncio.shield(self.cancel_event.wait()), timeout=60)
+                            return 'ERROR'
+                        except asyncio.TimeoutError:
+                            pass
+                    else:
+                        await asyncio.sleep(60)
+                    continue  # retry same attempt slot after quota wait
 
-            # 其他错误（包括超时）- 使用指数退避重试
-            is_timeout = 'timed out' in error_msg or 'timeout' in error_msg
-            if retry_count < max_retries:
-                wait_time = min(2 ** retry_count, 30)  # 指数退避，最多等待30秒
-                if is_timeout:
-                    self.log_callback(f"{log_prefix}⏰ 超时，{wait_time}s后重试({retry_count + 1}/{max_retries})")
+                # ── Other errors (including timeout) ─────────────────────
+                is_timeout = 'timed out' in error_msg or 'timeout' in error_msg
+                if attempt < max_retries - 1:
+                    wait_time = min(2 ** attempt, 30)
+                    if is_timeout:
+                        self.log_callback(f"{log_prefix}⏰ 超时，{wait_time}s后重试({attempt + 1}/{max_retries})")
+                    else:
+                        self.log_callback(f"{log_prefix}⚠️ {debug_label}API错误: {e}，{wait_time}秒后重试 (第{attempt + 1}/{max_retries}次)，请耐心等待！")
+                    await asyncio.sleep(wait_time)
                 else:
-                    self.log_callback(f"{log_prefix}⚠️ 搜索API错误: {e}，{wait_time}秒后重试 (第{retry_count + 1}/{max_retries}次)，请耐心等待！")
-                await asyncio.sleep(wait_time)
-                return await self.search_fn(query, retry_count + 1, max_retries, log_prefix)
-            else:
-                self.log_callback(f"{log_prefix}❌ {'请求超时，作者信息将留空' if is_timeout else f'搜索API错误（已达最大重试次数）: {e}'}")
-                return 'ERROR'
+                    self.log_callback(
+                        f"{log_prefix}❌ {'请求超时，作者信息将留空' if is_timeout else f'{debug_label}API错误（已达最大重试次数）: {e}'}"
+                    )
+                    return 'ERROR'
+
+        return 'ERROR'  # should not reach here, but safety fallback
+
+    # ── Convenience wrappers (preserve original public signatures) ──────
+
+    async def search_fn(self, query: str, retry_count: int = 0, max_retries: int = 5, log_prefix: str = "", quota_retry_count: int = 0) -> str:
+        """调用搜索模型（启用web搜索）"""
+        return await self._call_llm(
+            messages=[{"role": "user", "content": query}],
+            extra_body={"web_search_options": {}},
+            max_retries=max_retries,
+            log_prefix=log_prefix,
+            debug_label="搜索",
+        )
 
     async def chat_fn(self, query: str, retry_count: int = 0, max_retries: int = 5, log_prefix: str = "", quota_retry_count: int = 0) -> str:
-        """
-        调用对话模型（不启用web搜索，用于二次筛选）
-
-        Args:
-            query: 查询内容
-            retry_count: 当前重试次数
-            max_retries: 最大重试次数
-
-        Returns:
-            对话结果,失败返回'ERROR'
-        """
-        try:
-            if self.debug_mode:
-                self.log_callback(f"🔍 [DEBUG] 发送二次筛选请求 (模型: {self.renowned_scholar_model})")
-
-            completion = await self.client.chat.completions.create(
-                model=self.renowned_scholar_model,
-                messages=[{"role": "user", "content": query}],
-                temperature=0.1
-            )
-            response = completion.choices[0].message.content
-
-            if self.debug_mode:
-                self.log_callback(f"✅ [DEBUG] 二次筛选响应: {response[:200]}...")
-
-            return response
-        except Exception as e:
-            error_msg = str(e).lower()
-
-            if self.debug_mode:
-                self.log_callback(f"❌ [DEBUG] 二次筛选API异常: {type(e).__name__}: {e}")
-
-            # 检查是否是配额限制错误
-            if 'rate' in error_msg or 'quota' in error_msg or 'limit' in error_msg:
-                if quota_retry_count >= 3:
-                    self.log_callback("❌ API配额持续不足，已停止重试。")
-                    if self.cancel_event:
-                        self.cancel_event.set()
-                    return 'ERROR'
-                # If another concurrent task already hit quota limit, exit immediately without waiting
-                if self.cancel_event and self.cancel_event.is_set():
-                    return 'ERROR'
-                self.log_callback(f"⚠️ API配额超限，60秒后重试（第{quota_retry_count + 1}/3次）...")
-                if self.cancel_event:
-                    try:
-                        await asyncio.wait_for(asyncio.shield(self.cancel_event.wait()), timeout=60)
-                        return 'ERROR'
-                    except asyncio.TimeoutError:
-                        pass
-                else:
-                    await asyncio.sleep(60)
-                return await self.chat_fn(query, retry_count, max_retries, log_prefix, quota_retry_count + 1)
-
-            # 其他错误（包括超时）- 使用指数退避重试
-            is_timeout = 'timed out' in error_msg or 'timeout' in error_msg
-            if retry_count < max_retries:
-                wait_time = min(2 ** retry_count, 30)  # 指数退避，最多等待30秒
-                if is_timeout:
-                    self.log_callback(f"{log_prefix}⏰ 超时，{wait_time}s后重试({retry_count + 1}/{max_retries})")
-                else:
-                    self.log_callback(f"{log_prefix}⚠️ 二次筛选API错误: {e}，{wait_time}秒后重试 (第{retry_count + 1}/{max_retries}次)，请耐心等待！")
-                await asyncio.sleep(wait_time)
-                return await self.chat_fn(query, retry_count + 1, max_retries, log_prefix)
-            else:
-                self.log_callback(f"{log_prefix}❌ {'请求超时，作者信息将留空' if is_timeout else f'二次筛选API错误（已达最大重试次数）: {e}'}")
-                return 'ERROR'
+        """调用对话模型（不启用web搜索，用于二次筛选）"""
+        return await self._call_llm(
+            messages=[{"role": "user", "content": query}],
+            model=self.renowned_scholar_model,
+            max_retries=max_retries,
+            log_prefix=log_prefix,
+            debug_label="二次筛选",
+        )
 
     async def format_fn(self, query: str, retry_count: int = 0, max_retries: int = 5, log_prefix: str = "", quota_retry_count: int = 0) -> str:
-        """
-        调用格式输出模型（不启用web搜索，用于输出JSON）
-
-        Args:
-            query: 查询内容
-            retry_count: 当前重试次数
-            max_retries: 最大重试次数
-
-        Returns:
-            对话结果,失败返回'ERROR'
-        """
-        try:
-            if self.debug_mode:
-                self.log_callback(f"🔍 [DEBUG] 发送格式化输出重量级学者请求 (模型: {self.renowned_scholar_model})")
-
-            completion = await self.client.chat.completions.create(
-                model=self.renowned_scholar_model,
-                messages=[{"role": "user", "content": query}],
-                response_format={
-                    "type": "json_object"
-                }
-            )
-            response = completion.choices[0].message.content
-
-            if self.debug_mode:
-                self.log_callback(f"✅ [DEBUG] 格式化输出重量级学者响应: {response[:200]}...")
-
-            return response
-        except Exception as e:
-            error_msg = str(e).lower()
-
-            if self.debug_mode:
-                self.log_callback(f"❌ [DEBUG] 格式化输出重量级学者API异常: {type(e).__name__}: {e}")
-
-            # 检查是否是配额限制错误
-            if 'rate' in error_msg or 'quota' in error_msg or 'limit' in error_msg:
-                if quota_retry_count >= 3:
-                    self.log_callback("❌ API配额持续不足，已停止重试。")
-                    if self.cancel_event:
-                        self.cancel_event.set()
-                    return 'ERROR'
-                # If another concurrent task already hit quota limit, exit immediately without waiting
-                if self.cancel_event and self.cancel_event.is_set():
-                    return 'ERROR'
-                self.log_callback(f"⚠️ API配额超限，60秒后重试（第{quota_retry_count + 1}/3次）...")
-                if self.cancel_event:
-                    try:
-                        await asyncio.wait_for(asyncio.shield(self.cancel_event.wait()), timeout=60)
-                        return 'ERROR'
-                    except asyncio.TimeoutError:
-                        pass
-                else:
-                    await asyncio.sleep(60)
-                return await self.format_fn(query, retry_count, max_retries, log_prefix, quota_retry_count + 1)
-
-            # 其他错误（包括超时）- 使用指数退避重试
-            is_timeout = 'timed out' in error_msg or 'timeout' in error_msg
-            if retry_count < max_retries:
-                wait_time = min(2 ** retry_count, 30)  # 指数退避，最多等待30秒
-                if is_timeout:
-                    self.log_callback(f"{log_prefix}⏰ 超时，{wait_time}s后重试({retry_count + 1}/{max_retries})")
-                else:
-                    self.log_callback(f"{log_prefix}⚠️ 格式化输出重量级学者API错误: {e}，{wait_time}秒后重试 (第{retry_count + 1}/{max_retries}次)，请耐心等待！")
-                await asyncio.sleep(wait_time)
-                return await self.format_fn(query, retry_count + 1, max_retries, log_prefix)
-            else:
-                self.log_callback(f"{log_prefix}❌ {'请求超时，作者信息将留空' if is_timeout else f'格式化输出重量级学者API错误（已达最大重试次数）: {e}'}")
-                return 'ERROR'
+        """调用格式输出模型（不启用web搜索，用于输出JSON）"""
+        return await self._call_llm(
+            messages=[{"role": "user", "content": query}],
+            model=self.renowned_scholar_model,
+            response_format={"type": "json_object"},
+            max_retries=max_retries,
+            log_prefix=log_prefix,
+            debug_label="格式化输出重量级学者",
+        )
 
     async def verify_fn(self, query: str, retry_count: int = 0, max_retries: int = 5, log_prefix: str = "", quota_retry_count: int = 0) -> str:
-        """
-        调用校验模型（启用web搜索，用于作者信息真实性校验）
-
-        Args:
-            query: 查询内容
-            retry_count: 当前重试次数
-            max_retries: 最大重试次数
-
-        Returns:
-            校验结果,失败返回'ERROR'
-        """
-        try:
-            if self.debug_mode:
-                self.log_callback(f"🔍 [DEBUG] 发送作者校验请求 (模型: {self.author_verify_model})")
-
-            completion = await self.client.chat.completions.create(
-                model=self.author_verify_model,
-                messages=[{"role": "user", "content": query}],
-                temperature=0.1,
-                extra_body={"web_search_options": {}}  # 启用web搜索用于核验
-            )
-            response = completion.choices[0].message.content
-
-            if self.debug_mode:
-                self.log_callback(f"✅ [DEBUG] 作者校验响应: {response[:200]}...")
-
-            return response
-        except Exception as e:
-            error_msg = str(e).lower()
-
-            if self.debug_mode:
-                self.log_callback(f"❌ [DEBUG] 作者校验API异常: {type(e).__name__}: {e}")
-
-            # 检查是否是配额限制错误
-            if 'rate' in error_msg or 'quota' in error_msg or 'limit' in error_msg:
-                if quota_retry_count >= 3:
-                    self.log_callback("❌ API配额持续不足，已停止重试。")
-                    if self.cancel_event:
-                        self.cancel_event.set()
-                    return 'ERROR'
-                # If another concurrent task already hit quota limit, exit immediately without waiting
-                if self.cancel_event and self.cancel_event.is_set():
-                    return 'ERROR'
-                self.log_callback(f"⚠️ API配额超限，60秒后重试（第{quota_retry_count + 1}/3次）...")
-                if self.cancel_event:
-                    try:
-                        await asyncio.wait_for(asyncio.shield(self.cancel_event.wait()), timeout=60)
-                        return 'ERROR'
-                    except asyncio.TimeoutError:
-                        pass
-                else:
-                    await asyncio.sleep(60)
-                return await self.verify_fn(query, retry_count, max_retries, log_prefix, quota_retry_count + 1)
-
-            # 其他错误（包括超时）- 使用指数退避重试
-            is_timeout = 'timed out' in error_msg or 'timeout' in error_msg
-            if retry_count < max_retries:
-                wait_time = min(2 ** retry_count, 30)  # 指数退避，最多等待30秒
-                if is_timeout:
-                    self.log_callback(f"{log_prefix}⏰ 超时，{wait_time}s后重试({retry_count + 1}/{max_retries})")
-                else:
-                    self.log_callback(f"{log_prefix}⚠️ 作者校验API错误: {e}，{wait_time}秒后重试 (第{retry_count + 1}/{max_retries}次)，请耐心等待！")
-                await asyncio.sleep(wait_time)
-                return await self.verify_fn(query, retry_count + 1, max_retries, log_prefix)
-            else:
-                self.log_callback(f"{log_prefix}❌ {'请求超时，作者信息将留空' if is_timeout else f'作者校验API错误（已达最大重试次数）: {e}'}")
-                return 'ERROR'
+        """调用校验模型（启用web搜索，用于作者信息真实性校验）"""
+        return await self._call_llm(
+            messages=[{"role": "user", "content": query}],
+            model=self.author_verify_model,
+            extra_body={"web_search_options": {}},
+            max_retries=max_retries,
+            log_prefix=log_prefix,
+            debug_label="作者校验",
+        )
 
     async def _check_self_citation_llm(
         self,
@@ -465,45 +356,17 @@ class AuthorSearcher:
             authors_with_profile=authors_with_profile,
             searched_affiliation=searched_affiliation,
         )
-        try:
-            completion = await self.client.chat.completions.create(
-                model=self.renowned_scholar_model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,
-            )
-            answer = (completion.choices[0].message.content or "").strip()
-            return answer.startswith("是")
-        except Exception as e:
-            error_msg = str(e).lower()
-            if 'rate' in error_msg or 'quota' in error_msg or 'limit' in error_msg:
-                if quota_retry_count >= 3:
-                    self.log_callback("❌ API配额持续不足，已停止重试。")
-                    if self.cancel_event:
-                        self.cancel_event.set()
-                    return False
-                # If another concurrent task already hit quota limit, exit immediately without waiting
-                if self.cancel_event and self.cancel_event.is_set():
-                    return False
-                self.log_callback(f"⚠️ API配额超限，60秒后重试（第{quota_retry_count + 1}/3次）...")
-                if self.cancel_event:
-                    try:
-                        await asyncio.wait_for(asyncio.shield(self.cancel_event.wait()), timeout=60)
-                        return False
-                    except asyncio.TimeoutError:
-                        pass
-                else:
-                    await asyncio.sleep(60)
-                return await self._check_self_citation_llm(
-                    authors_with_profile, searched_affiliation, retry_count, max_retries, quota_retry_count + 1
-                )
-            if retry_count < max_retries:
-                wait_time = min(2 ** retry_count, 15)
-                await asyncio.sleep(wait_time)
-                return await self._check_self_citation_llm(
-                    authors_with_profile, searched_affiliation, retry_count + 1, max_retries, quota_retry_count
-                )
-            self.log_callback(f"⚠️ 自引检测LLM调用失败，默认视为非自引: {e}")
+        result = await self._call_llm(
+            messages=[{"role": "user", "content": prompt}],
+            model=self.renowned_scholar_model,
+            temperature=0.0,
+            max_retries=max_retries,
+            debug_label="自引检测",
+        )
+        if result == 'ERROR':
+            self.log_callback("⚠️ 自引检测LLM调用失败，默认视为非自引")
             return False
+        return result.strip().startswith("是")
 
     async def _search_single_paper(
         self,
@@ -540,8 +403,32 @@ class AuthorSearcher:
                 'Authors_with_Profile': str(paper_content['authors']),
             }
 
+            # ── 结构化作者提取（WOS→S2→MinerU）─────────────────────────────
+            if self.structured_fetcher:
+                doi = paper_content.get('doi', '')
+                pdf_path = paper_content.get('pdf_path', None)
+                self.log_callback(f"  🔍 [结构化] 查询作者: {paper_title[:50]}...")
+                try:
+                    struct_authors, struct_source = await self.structured_fetcher.fetch(
+                        paper_title, doi=doi, pdf_path=pdf_path
+                    )
+                    record_dict['Paper_Authors'] = struct_authors
+                    record_dict['Paper_Authors_Source'] = struct_source
+                    if struct_authors:
+                        self.log_callback(
+                            f"  📋 [{struct_source}] 找到 {len(struct_authors)} 位作者: {paper_title[:40]}..."
+                        )
+                    else:
+                        self.log_callback(
+                            f"  ⚪ [结构化] 未找到作者（WOS/S2 均无收录）: {paper_title[:40]}..."
+                        )
+                except Exception as exc:
+                    self.log_callback(f"  ⚠️ 结构化作者提取失败: {exc}")
+                    record_dict['Paper_Authors'] = []
+                    record_dict['Paper_Authors_Source'] = ''
+
             # ── 查询缓存（取出已有字段供后续各步使用）────────────────────────
-            cached = self.author_cache.get(paper_link, paper_title) if self.author_cache else None
+            cached = (await self.author_cache.get(paper_link, paper_title)) if self.author_cache else None
 
             # ── Step 1: 作者列表及单位 ────────────────────────────────────────
             if cached and cached.get('Searched Author-Affiliation'):
@@ -571,7 +458,8 @@ class AuthorSearcher:
                     record_dict['First_Author_Institution'] = ''
                     record_dict['First_Author_Country'] = ''
 
-                if self.author_cache:
+                # FIX: Don't cache ERROR sentinels
+                if self.author_cache and response1 != 'ERROR':
                     await self.author_cache.update(paper_link, paper_title, {
                         'Searched Author-Affiliation': response1,
                         'First_Author_Institution': record_dict['First_Author_Institution'],
@@ -597,7 +485,8 @@ class AuthorSearcher:
                 query2 += '\n' + self.prompt2
                 response2 = await self.search_fn(query2, log_prefix=log_prefix)
                 record_dict['Searched Author Information'] = response2
-                if self.author_cache:
+                # FIX: Don't cache ERROR sentinels
+                if self.author_cache and response2 != 'ERROR':
                     await self.author_cache.update(paper_link, paper_title, {
                         'Searched Author Information': response2,
                     })
@@ -610,7 +499,8 @@ class AuthorSearcher:
                     query_verify = response2 + '\n\n' + self.author_verify_prompt
                     response_verify = await self.verify_fn(query_verify, log_prefix=log_prefix)
                     record_dict['Author Verification'] = response_verify
-                    if self.author_cache:
+                    # FIX: Don't cache ERROR sentinels
+                    if self.author_cache and response_verify != 'ERROR':
                         await self.author_cache.update(paper_link, paper_title, {
                             'Author Verification': response_verify,
                         })
@@ -652,7 +542,8 @@ class AuthorSearcher:
                                         '荣誉称号': res.get('荣誉称号', ''),
                                     })
                     record_dict['Formated Renowned Scholar'] = format_scholar_record
-                    if self.author_cache:
+                    # FIX: Don't cache ERROR sentinels
+                    if self.author_cache and response_filter != 'ERROR':
                         await self.author_cache.update(paper_link, paper_title, {
                             'Renowned Scholar': response_filter,
                             'Formated Renowned Scholar': format_scholar_record,
@@ -665,6 +556,9 @@ class AuthorSearcher:
             else:
                 log_num = count
             self.log_callback(f"[{log_num}/{total_papers}] 搜索完成: {paper_title[:50]}...")
+            # FIX: Update progress as each task completes (not in burst at end)
+            if completed_state is not None:
+                self.progress_callback(log_num, total_papers)
             return (count, record_dict)
 
     async def search(
@@ -716,6 +610,12 @@ class AuthorSearcher:
         # 确保输出目录存在
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
+        # FIX: In serial mode, truncate output file first to avoid corruption
+        # from leftover data of a previous run, then append per-record.
+        if parallel_workers == 1:
+            with open(output_file, 'w') as f:
+                pass  # truncate
+
         # 创建信号量控制并发数
         semaphore = asyncio.Semaphore(parallel_workers)
 
@@ -749,7 +649,7 @@ class AuthorSearcher:
                 result = await task
                 count_num, record_dict = result
 
-                # 立即写入文件
+                # 立即写入文件（file was truncated above, safe to append）
                 with open(output_file, 'a', encoding='utf-8') as f:
                     f.write(json.dumps({count_num: record_dict}, ensure_ascii=False) + '\n')
 
@@ -763,19 +663,35 @@ class AuthorSearcher:
         # 并行模式：等待所有任务完成
         if parallel_workers > 1:
             self.log_callback(f"等待所有并行任务完成...")
+            # FIX: Use asyncio.wait instead of wait_for+gather so that
+            # completed results are preserved even when timeout fires.
             try:
-                results = await asyncio.wait_for(
-                    asyncio.gather(*tasks, return_exceptions=True),
-                    timeout=7200,  # 2小时上限，防止并行批次永久阻塞
-                )
-            except asyncio.TimeoutError:
-                self.log_callback("⚠️ 并行批次超时（2小时），强制结束")
-                results = []
+                done, pending = await asyncio.wait(tasks, timeout=7200)  # 2小时上限
+            except Exception:
+                done, pending = set(), set(tasks)
+
+            if pending:
+                self.log_callback(f"⚠️ 并行批次超时（2小时），{len(pending)} 个任务未完成，正在取消...")
+                for t in pending:
+                    t.cancel()
+                # Wait for cancellations to propagate
+                await asyncio.gather(*pending, return_exceptions=True)
+
+            # Collect results from completed tasks
+            results = []
+            for t in done:
+                exc = t.exception()
+                if exc is not None:
+                    results.append(exc)
+                else:
+                    results.append(t.result())
 
             # 检查错误
             errors = [r for r in results if isinstance(r, Exception)]
             if errors:
                 self.log_callback(f"⚠️ 有 {len(errors)} 个任务失败")
+                for i, err in enumerate(errors[:3]):
+                    self.log_callback(f"  错误 {i+1}: {type(err).__name__}: {err}")
 
             # 过滤出成功的结果并排序
             successful_results = [r for r in results if not isinstance(r, Exception) and r[1]]
@@ -785,7 +701,5 @@ class AuthorSearcher:
             with open(output_file, 'w', encoding='utf-8') as f:
                 for count_num, record_dict in successful_results:
                     f.write(json.dumps({count_num: record_dict}, ensure_ascii=False) + '\n')
-                    # 更新进度
-                    self.progress_callback(count_num, total_papers)
 
         self.log_callback(f"✅ 作者信息搜索完成!共处理 {total_papers} 篇论文")

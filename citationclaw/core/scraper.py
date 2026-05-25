@@ -2,9 +2,14 @@ import requests
 import json
 import asyncio
 import re
+import time
+import urllib.parse
 from pathlib import Path
 from typing import Callable, Optional, Tuple
-from citationclaw.core.parser import google_scholar_html_parser
+from citationclaw.core.parser import GoogleScholarHtmlParser
+
+# Backward-compat: old import name still works
+from citationclaw.core.parser import google_scholar_html_parser  # noqa: F401
 
 
 class GoogleScholarScraper:
@@ -37,11 +42,15 @@ class GoogleScholarScraper:
         'ru', 'cn',
     ]
 
+    # Default wall-clock timeout: 6 hours
+    DEFAULT_WALL_TIMEOUT = 6 * 3600
+
     def __init__(self, api_keys: list, log_callback: Callable, progress_callback: Callable,
                  debug_mode: bool = False, premium: bool = False, ultra_premium: bool = False,
                  retry_max_attempts: int = 3, retry_intervals: str = "5,10,20",
                  session: bool = False, no_filter: bool = False, geo_rotate: bool = False,
-                 dc_retry_max_attempts: int = 5, cost_tracker=None):
+                 dc_retry_max_attempts: int = 5, cost_tracker=None,
+                 wall_timeout: Optional[int] = None):
         """
         Google Scholar引用列表抓取器
 
@@ -58,10 +67,11 @@ class GoogleScholarScraper:
             no_filter: 是否在Google Scholar链接后追加&filter=0
             geo_rotate: 数据中心重试时是否通过country_code切换国家
             dc_retry_max_attempts: 数据中心不一致时的最大重试次数（每次自动切换国家代码）
+            wall_timeout: 整体超时时间（秒），默认6小时。None 使用默认值。
         """
         import random
         self.api_keys = api_keys
-        self.parser = google_scholar_html_parser()
+        self.parser = GoogleScholarHtmlParser()
         self.log_callback = log_callback
         self.progress_callback = progress_callback
         self.debug_mode = debug_mode
@@ -69,6 +79,10 @@ class GoogleScholarScraper:
         self.ultra_premium = ultra_premium
         self.no_filter = no_filter
         self.geo_rotate = geo_rotate
+
+        # Wall-clock timeout
+        self.wall_timeout = wall_timeout if wall_timeout is not None else self.DEFAULT_WALL_TIMEOUT
+        self._start_time: Optional[float] = None
 
         # 会话保持：生成随机session number
         self.session_enabled = session
@@ -98,6 +112,16 @@ class GoogleScholarScraper:
             self.log_callback("🔍 filter=0 已启用：显示全部结果不过滤")
         if self.geo_rotate:
             self.log_callback("🌍 数据中心国家轮换已启用：重试时将切换 country_code")
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _is_wall_timeout_exceeded(self) -> bool:
+        """Check if the overall wall-clock timeout has been exceeded."""
+        if self._start_time is None:
+            return False
+        return (time.monotonic() - self._start_time) > self.wall_timeout
 
     @staticmethod
     def _parse_intervals(intervals_str: str) -> list:
@@ -141,6 +165,36 @@ class GoogleScholarScraper:
         else:
             return random.choice(self.ALL_GEO_COUNTRIES)
 
+    @staticmethod
+    def _advance_url_by_one_page(url: str, current_page: int) -> str:
+        """Compute the next-page URL by incrementing the start= parameter.
+
+        This is used as a fallback when the HTML-based next_page link is not
+        available (e.g., when a page fetch fails entirely).
+        """
+        next_start = (current_page + 1) * 10
+        parsed = urllib.parse.urlparse(url)
+        params = urllib.parse.parse_qs(parsed.query)
+        params['start'] = [str(next_start)]
+        new_query = urllib.parse.urlencode(params, doseq=True)
+        return urllib.parse.urlunparse(parsed._replace(query=new_query))
+
+    @staticmethod
+    def _get_config_path() -> Path:
+        """Return absolute path to config.json next to the app package."""
+        try:
+            from citationclaw.app.config_manager import ConfigManager  # noqa: F401
+            # config_manager.py lives in citationclaw/app/; config.json is beside it
+            app_dir = Path(__file__).resolve().parent.parent / 'app'
+            return app_dir / 'config.json'
+        except Exception:
+            # Fallback: use the directory of this file
+            return Path(__file__).resolve().parent.parent / 'config.json'
+
+    # ------------------------------------------------------------------
+    # HTTP request
+    # ------------------------------------------------------------------
+
     async def request_fn(self, url: str, idx: int, max_retries: int = 3, country_code: str = None) -> Optional[str]:
         """
         通过ScraperAPI请求URL（带重试机制）
@@ -178,7 +232,10 @@ class GoogleScholarScraper:
                 if self.session_number:
                     payload['session_number'] = str(self.session_number)
 
-                r = requests.get('https://api.scraperapi.com/', params=payload, timeout=90)
+                r = await asyncio.to_thread(
+                    requests.get, 'https://api.scraperapi.com/',
+                    params=payload, timeout=90
+                )
 
                 if r.status_code == 200:
                     self.consecutive_failures = 0  # 重置连续失败计数
@@ -208,6 +265,10 @@ class GoogleScholarScraper:
         self.log_callback(f"⚠️  请求失败,已重试 {max_retries} 次（连续失败: {self.consecutive_failures}）")
         return None
 
+    # ------------------------------------------------------------------
+    # Citation count detection
+    # ------------------------------------------------------------------
+
     def _parse_citation_count(self, html: str) -> int:
         """
         从 HTML 中提取引用总数
@@ -222,12 +283,12 @@ class GoogleScholarScraper:
             from bs4 import BeautifulSoup
             soup = BeautifulSoup(html, 'html.parser')
             stat_patterns = [
-                r'找到约\s*([\d,]+)\s*条',
-                r'获得\s*([\d,]+)\s*条',
-                r'约\s*([\d,]+)\s*条',
-                r'([\d,]+)\s*条结果',
-                r'About\s+([\d,]+)\s+results?',
-                r'^([\d,]+)\s+results?\b',
+                r'找到约\s*([\d,.\s]+?)\s*条',
+                r'获得\s*([\d,.\s]+?)\s*条',
+                r'约\s*([\d,.\s]+?)\s*条',
+                r'([\d,.\s]+?)\s*条结果',
+                r'About\s+([\d,.\s]+?)\s+results?',
+                r'^([\d,.\s]+?)\s+results?\b',
             ]
             candidates = []
             id_elem = soup.find(id='gs_ab_mdw')
@@ -240,25 +301,29 @@ class GoogleScholarScraper:
                 for pat in stat_patterns:
                     m = re.search(pat, stat_text, re.IGNORECASE)
                     if m:
-                        citation_count = int(m.group(1).replace(',', ''))
-                        self.log_callback(f"🔍 结果统计元素文本: {stat_text[:100]}")
-                        return citation_count
+                        raw = re.sub(r'[,.\s]', '', m.group(1).strip())
+                        if raw.isdigit():
+                            citation_count = int(raw)
+                            self.log_callback(f"🔍 结果统计元素文本: {stat_text[:100]}")
+                            return citation_count
         except Exception:
             pass
 
         # 第二步：对整个 HTML 做正则（数字可能含 <b> 标签）
         patterns = [
-            r'找到约\s*(?:<[^>]+>)?\s*([\d,]+)\s*(?:<[^>]+>)?\s*条',
-            r'获得\s*(?:<[^>]+>)?\s*([\d,]+)\s*(?:<[^>]+>)?\s*条',
-            r'约\s*(?:<[^>]+>)?\s*([\d,]+)\s*(?:<[^>]+>)?\s*条结果',
-            r'About\s+(?:<[^>]+>)?\s*([\d,]+)\s+results?',
-            r'([\d,]+)\s*条结果',
-            r'>(\d[\d,]*)\s+results?\b',
+            r'找到约\s*(?:<[^>]+>)?\s*([\d,.\s]+?)\s*(?:<[^>]+>)?\s*条',
+            r'获得\s*(?:<[^>]+>)?\s*([\d,.\s]+?)\s*(?:<[^>]+>)?\s*条',
+            r'约\s*(?:<[^>]+>)?\s*([\d,.\s]+?)\s*(?:<[^>]+>)?\s*条结果',
+            r'About\s+(?:<[^>]+>)?\s*([\d,.\s]+?)\s+results?',
+            r'([\d,.\s]+?)\s*条结果',
+            r'>(\d[\d,.\s]*?)\s+results?\b',
         ]
         for pattern in patterns:
             match = re.search(pattern, html, re.IGNORECASE)
             if match:
-                return int(match.group(1).replace(',', ''))
+                raw = re.sub(r'[,.\s]', '', match.group(1).strip())
+                if raw.isdigit():
+                    return int(raw)
 
         return 0
 
@@ -353,6 +418,10 @@ class GoogleScholarScraper:
         self.log_callback("⚠️  多次尝试后仍未能提取引用数，将按未知数量继续")
         return (0, 0)
 
+    # ------------------------------------------------------------------
+    # Year data extraction
+    # ------------------------------------------------------------------
+
     def _extract_year_data(self, html: str) -> list:
         """
         从 HTML 中提取年份分布数据
@@ -401,6 +470,10 @@ class GoogleScholarScraper:
         except Exception as e:
             self.log_callback(f"⚠️  提取年份数据失败: {e}")
             return []
+
+    # ------------------------------------------------------------------
+    # Page quality detection
+    # ------------------------------------------------------------------
 
     def _is_real_paper(self, paper: dict) -> tuple:
         """
@@ -503,6 +576,10 @@ class GoogleScholarScraper:
 
         return is_login_page, matched_indicators
 
+    # ------------------------------------------------------------------
+    # Debug helpers
+    # ------------------------------------------------------------------
+
     def _save_debug_html(self, html: str, page_count: int):
         """调试模式：只保存原始 HTML，供人工查看"""
         try:
@@ -570,6 +647,167 @@ class GoogleScholarScraper:
         except Exception as e:
             self.log_callback(f"⚠️ 保存调试信息失败: {e}")
 
+    # ------------------------------------------------------------------
+    # Shared retry helpers (used by both scrape and _scrape_single_year)
+    # ------------------------------------------------------------------
+
+    async def _handle_login_page_retry(
+        self,
+        current_url: str,
+        api_key_idx: int,
+        page_count: int,
+        cancel_check: Optional[Callable[[], bool]],
+    ) -> Optional[Tuple[str, dict, str]]:
+        """Retry fetching a page that was detected as a login/abnormal page.
+
+        Returns:
+            (html, paper_dict, next_page) on success, or None if all retries fail.
+        """
+        retry_display = "∞" if self.retry_max_attempts == -1 else str(self.retry_max_attempts)
+        retry_num = 0
+        while True:
+            retry_num += 1
+            if self.retry_max_attempts != -1 and retry_num > self.retry_max_attempts:
+                break
+            if cancel_check and cancel_check():
+                break
+            if self._is_wall_timeout_exceeded():
+                self.log_callback("⏰ 已达到整体超时时间，停止重试")
+                break
+            retry_wait = self._get_retry_wait(retry_num - 1)
+            self.log_callback(f"🔄 第 {retry_num}/{retry_display} 次重试，等待 {retry_wait} 秒...")
+            await asyncio.sleep(retry_wait)
+
+            # 更换session以尝试不同路由
+            self._rotate_session()
+
+            retry_api_idx = (api_key_idx + retry_num) % len(self.api_keys)
+            retry_html = await self.request_fn(current_url, retry_api_idx, max_retries=self.retry_max_attempts)
+
+            if not retry_html:
+                self.log_callback(f"❌ 重试 {retry_num} 失败：无法获取HTML")
+                continue
+
+            try:
+                retry_paper_dict, retry_next_page = self.parser.parse_page(retry_html)
+            except Exception as e:
+                self.log_callback(f"❌ 重试 {retry_num} 解析失败: {e}")
+                continue
+
+            retry_is_login, _ = self._detect_login_page(retry_html, retry_paper_dict, page_count, debug=False)
+
+            if not retry_is_login:
+                self.log_callback(f"✅ 重试成功！第 {page_count} 页正常抓取")
+                self.consecutive_failures = 0
+                return (retry_html, retry_paper_dict, retry_next_page)
+            else:
+                self.log_callback(f"⚠️ 重试 {retry_num} 仍检测到登录页面")
+
+        return None
+
+    async def _handle_dc_inconsistency_retry(
+        self,
+        current_url: str,
+        previous_url: Optional[str],
+        api_key_idx: int,
+        page_count: int,
+        paper_dict: dict,
+        next_page: str,
+        paper_count_this_page: int,
+        expected_on_this_page: int,
+        page_is_short: bool,
+        page_ends_early: bool,
+        cancel_check: Optional[Callable[[], bool]],
+    ) -> Tuple[dict, str, int]:
+        """Retry fetching a page that shows data-center inconsistency.
+
+        Returns:
+            (paper_dict, next_page, paper_count_this_page) -- best result obtained.
+        """
+        best_paper_dict = paper_dict
+        best_next_page = next_page
+        best_count = paper_count_this_page
+
+        dc_retry_display = "∞" if self.dc_retry_max_attempts == -1 else str(self.dc_retry_max_attempts)
+        dc_retry = 0
+        dc_retry_success = False
+        while True:
+            dc_retry += 1
+            if self.dc_retry_max_attempts != -1 and dc_retry > self.dc_retry_max_attempts:
+                break
+            if cancel_check and cancel_check():
+                break
+            if self._is_wall_timeout_exceeded():
+                self.log_callback("⏰ 已达到整体超时时间，停止DC重试")
+                break
+            dc_wait = self._get_retry_wait(dc_retry - 1)
+            # 数据中心重试：始终切换国家代码以强制切换DC
+            country_code = self._get_retry_country(dc_retry)
+            self.log_callback(f"🔄 数据中心重试 {dc_retry}/{dc_retry_display}，国家={country_code}，等待 {dc_wait} 秒...")
+            await asyncio.sleep(dc_wait)
+
+            self._rotate_session()
+
+            dc_api_idx = (api_key_idx + dc_retry) % len(self.api_keys)
+
+            # 如果有上一页URL，从上一页重新获取next_page链接
+            retry_url = current_url
+            if previous_url:
+                self.log_callback(f"↩️ 重新请求上一页以获取正确的下一页链接...")
+                prev_html = await self.request_fn(previous_url, dc_api_idx, max_retries=2, country_code=country_code)
+                if prev_html:
+                    try:
+                        _, new_next_page = self.parser.parse_page(prev_html)
+                        if new_next_page != 'EMPTY':
+                            retry_url = new_next_page
+                        else:
+                            self.log_callback(f"⚠️ 上一页无下一页链接，使用原URL重试")
+                    except Exception:
+                        self.log_callback(f"⚠️ 上一页解析失败，使用原URL重试")
+
+            dc_html = await self.request_fn(retry_url, dc_api_idx, max_retries=self.retry_max_attempts, country_code=country_code)
+            if not dc_html:
+                continue
+
+            try:
+                dc_paper_dict, dc_next_page = self.parser.parse_page(dc_html)
+            except Exception:
+                continue
+
+            dc_count = len(dc_paper_dict)
+            if dc_count > best_count:
+                best_paper_dict = dc_paper_dict
+                best_next_page = dc_next_page
+                best_count = dc_count
+
+            improved = False
+            if page_is_short and dc_count >= expected_on_this_page:
+                improved = True
+            elif page_ends_early and dc_next_page != 'EMPTY':
+                improved = True
+
+            if improved:
+                self.log_callback(f"✅ 数据中心重试成功！获得 {dc_count} 篇论文")
+                if self.debug_mode:
+                    self._save_debug_html(dc_html, page_count)
+                dc_retry_success = True
+                return (dc_paper_dict, dc_next_page, dc_count)
+            else:
+                self.log_callback(f"⚠️ 重试 {dc_retry} 仍异常（{dc_count} 篇）")
+
+        if not dc_retry_success:
+            if best_count > paper_count_this_page:
+                self.log_callback(f"⚠️ 使用最佳结果（{best_count} 篇）继续")
+                return (best_paper_dict, best_next_page, best_count)
+            else:
+                self.log_callback(f"⚠️ 多次重试后仍异常，使用当前结果继续")
+
+        return (paper_dict, next_page, paper_count_this_page)
+
+    # ------------------------------------------------------------------
+    # Single-year scraping
+    # ------------------------------------------------------------------
+
     async def _scrape_single_year(
         self,
         base_url: str,
@@ -609,11 +847,17 @@ class GoogleScholarScraper:
         # 确保输出目录存在
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(output_file, 'w', encoding='utf-8') as f:
+        # Use append mode to avoid truncating data from a previous run
+        with open(output_file, 'a', encoding='utf-8') as f:
             while current_url != 'EMPTY':
                 # 检查是否取消
                 if cancel_check and cancel_check():
                     self.log_callback(f"   {year} 年抓取已取消")
+                    break
+
+                # Wall-clock timeout check
+                if self._is_wall_timeout_exceeded():
+                    self.log_callback(f"⏰ 已达到整体超时时间 ({self.wall_timeout}s)，停止 {year} 年抓取")
                     break
 
                 # 检查是否达到 Google Scholar 的 1000 条限制
@@ -637,9 +881,13 @@ class GoogleScholarScraper:
                     await asyncio.sleep(self._get_retry_wait(0))
                     html = await self.request_fn(current_url, (api_key_idx + 1) % len(self.api_keys), max_retries=self.retry_max_attempts)
                     if not html:
-                        self.log_callback(f"❌ {year} 年第 {page_count} 页仍然失败，跳过")
+                        self.log_callback(f"❌ {year} 年第 {page_count} 页仍然失败，跳过此页")
                         if self.consecutive_failures >= self.max_consecutive_failures:
                             break
+                        # FIX: advance to next page to avoid infinite loop
+                        previous_url = current_url
+                        current_url = self._advance_url_by_one_page(year_url, page_count)
+                        page_count += 1
                         continue
 
                 # 解析 HTML
@@ -660,49 +908,13 @@ class GoogleScholarScraper:
                 if is_login_page:
                     self.log_callback(f"🚫 {year} 年第 {page_count} 页检测到登录页面，启动重试...")
 
-                    retry_success = False
-                    retry_display = "∞" if self.retry_max_attempts == -1 else str(self.retry_max_attempts)
-                    retry_num = 0
-                    while True:
-                        retry_num += 1
-                        if self.retry_max_attempts != -1 and retry_num > self.retry_max_attempts:
-                            break
-                        if cancel_check and cancel_check():
-                            break
-                        retry_wait = self._get_retry_wait(retry_num - 1)
-                        self.log_callback(f"🔄 第 {retry_num}/{retry_display} 次重试，等待 {retry_wait} 秒...")
-                        await asyncio.sleep(retry_wait)
-
-                        # 更换session以尝试不同路由
-                        self._rotate_session()
-
-                        retry_api_idx = (api_key_idx + retry_num) % len(self.api_keys)
-                        retry_html = await self.request_fn(current_url, retry_api_idx, max_retries=self.retry_max_attempts)
-
-                        if not retry_html:
-                            self.log_callback(f"❌ 重试 {retry_num} 失败：无法获取HTML")
-                            continue
-
-                        try:
-                            retry_paper_dict, retry_next_page = self.parser.parse_page(retry_html)
-                        except Exception as e:
-                            self.log_callback(f"❌ 重试 {retry_num} 解析失败: {e}")
-                            continue
-
-                        retry_is_login, _ = self._detect_login_page(retry_html, retry_paper_dict, page_count, debug=False)
-
-                        if not retry_is_login:
-                            self.log_callback(f"✅ 重试成功！第 {page_count} 页正常抓取")
-                            html = retry_html
-                            paper_dict = retry_paper_dict
-                            next_page = retry_next_page
-                            self.consecutive_failures = 0
-                            retry_success = True
-                            break
-                        else:
-                            self.log_callback(f"⚠️ 重试 {retry_num} 仍检测到登录页面")
-
-                    if not retry_success:
+                    result = await self._handle_login_page_retry(
+                        current_url, api_key_idx, page_count, cancel_check,
+                    )
+                    if result:
+                        html, paper_dict, next_page = result
+                    else:
+                        retry_display = "∞" if self.retry_max_attempts == -1 else str(self.retry_max_attempts)
                         self.log_callback(f"❌ {year} 年第 {page_count} 页重试 {retry_display} 次后仍失败，跳过该年")
                         self.consecutive_failures += 1
                         break
@@ -726,81 +938,19 @@ class GoogleScholarScraper:
                             reason_parts.append(f"非末页但无下一页")
                         self.log_callback(f"⚠️ {year} 年第 {page_count} 页数据异常: {'；'.join(reason_parts)}（疑似数据中心不一致）")
 
-                        best_paper_dict = paper_dict
-                        best_next_page = next_page
-                        best_count = paper_count_this_page
-
-                        dc_retry_display = "∞" if self.dc_retry_max_attempts == -1 else str(self.dc_retry_max_attempts)
-                        dc_retry = 0
-                        dc_retry_success = False
-                        while True:
-                            dc_retry += 1
-                            if self.dc_retry_max_attempts != -1 and dc_retry > self.dc_retry_max_attempts:
-                                break
-                            if cancel_check and cancel_check():
-                                break
-                            dc_wait = self._get_retry_wait(dc_retry - 1)
-                            # 数据中心重试：始终切换国家代码以强制切换DC
-                            country_code = self._get_retry_country(dc_retry)
-                            self.log_callback(f"🔄 数据中心重试 {dc_retry}/{dc_retry_display}，国家={country_code}，等待 {dc_wait} 秒...")
-                            await asyncio.sleep(dc_wait)
-
-                            self._rotate_session()
-
-                            dc_api_idx = (api_key_idx + dc_retry) % len(self.api_keys)
-
-                            # 如果有上一页URL，从上一页重新获取next_page链接
-                            retry_url = current_url
-                            if previous_url:
-                                self.log_callback(f"↩️ 重新请求上一页以获取正确的下一页链接...")
-                                prev_html = await self.request_fn(previous_url, dc_api_idx, max_retries=2, country_code=country_code)
-                                if prev_html:
-                                    try:
-                                        _, new_next_page = self.parser.parse_page(prev_html)
-                                        if new_next_page != 'EMPTY':
-                                            retry_url = new_next_page
-                                    except Exception:
-                                        pass
-
-                            dc_html = await self.request_fn(retry_url, dc_api_idx, max_retries=self.retry_max_attempts, country_code=country_code)
-                            if not dc_html:
-                                continue
-
-                            try:
-                                dc_paper_dict, dc_next_page = self.parser.parse_page(dc_html)
-                            except Exception:
-                                continue
-
-                            dc_count = len(dc_paper_dict)
-                            if dc_count > best_count:
-                                best_paper_dict = dc_paper_dict
-                                best_next_page = dc_next_page
-                                best_count = dc_count
-
-                            improved = False
-                            if page_is_short and dc_count >= expected_on_this_page:
-                                improved = True
-                            elif page_ends_early and dc_next_page != 'EMPTY':
-                                improved = True
-
-                            if improved:
-                                self.log_callback(f"✅ 数据中心重试成功！获得 {dc_count} 篇论文")
-                                paper_dict = dc_paper_dict
-                                next_page = dc_next_page
-                                paper_count_this_page = dc_count
-                                dc_retry_success = True
-                                break
-                            else:
-                                self.log_callback(f"⚠️ 重试 {dc_retry} 仍异常（{dc_count} 篇）")
-
-                        if not dc_retry_success:
-                            if best_count > paper_count_this_page:
-                                self.log_callback(f"⚠️ 使用最佳结果（{best_count} 篇）继续")
-                                paper_dict = best_paper_dict
-                                next_page = best_next_page
-                                paper_count_this_page = best_count
-                            else:
-                                self.log_callback(f"⚠️ 多次重试后仍异常，使用当前结果继续")
+                        paper_dict, next_page, paper_count_this_page = await self._handle_dc_inconsistency_retry(
+                            current_url=current_url,
+                            previous_url=previous_url,
+                            api_key_idx=api_key_idx,
+                            page_count=page_count,
+                            paper_dict=paper_dict,
+                            next_page=next_page,
+                            paper_count_this_page=paper_count_this_page,
+                            expected_on_this_page=expected_on_this_page,
+                            page_is_short=page_is_short,
+                            page_ends_early=page_ends_early,
+                            cancel_check=cancel_check,
+                        )
 
                 # 统计论文数
                 if paper_count_this_page > 0:
@@ -839,6 +989,10 @@ class GoogleScholarScraper:
             'hit_limit': hit_limit
         }
 
+    # ------------------------------------------------------------------
+    # Main scrape entry point
+    # ------------------------------------------------------------------
+
     async def scrape(
         self,
         url: str,
@@ -863,6 +1017,7 @@ class GoogleScholarScraper:
             enable_year_traverse: 是否启用按年份遍历（绕过1000条限制）
         """
         self.consecutive_failures = 0  # 重置连续失败计数
+        self._start_time = time.monotonic()  # Start wall-clock timer
 
         # 确保输出目录存在
         output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -897,6 +1052,11 @@ class GoogleScholarScraper:
                         # 检查是否取消
                         if cancel_check and cancel_check():
                             self.log_callback("任务已取消")
+                            break
+
+                        # Wall-clock timeout check
+                        if self._is_wall_timeout_exceeded():
+                            self.log_callback(f"⏰ 已达到整体超时时间 ({self.wall_timeout}s)，停止年份遍历")
                             break
 
                         # 跳过已完整缓存的年份
@@ -974,7 +1134,6 @@ class GoogleScholarScraper:
 
         # 断点续爬时，为 URL 添加 start= 偏移，跳到正确的页面
         if start_page > 0:
-            import urllib.parse
             start_offset = start_page * 10
             parsed = urllib.parse.urlparse(current_url)
             params = urllib.parse.parse_qs(parsed.query)
@@ -1005,6 +1164,13 @@ class GoogleScholarScraper:
                     self.log_callback("任务已取消")
                     break
 
+                # Wall-clock timeout check
+                if self._is_wall_timeout_exceeded():
+                    self.log_callback(f"⏰ 已达到整体超时时间 ({self.wall_timeout}s)，停止抓取")
+                    self.log_callback(f"💾 当前进度已保存,下次从第 {page_count} 页继续")
+                    self._save_resume_progress(page_count)
+                    break
+
                 # 检查连续失败次数
                 if self.consecutive_failures >= self.max_consecutive_failures:
                     self.log_callback(f"❌ 连续失败 {self.max_consecutive_failures} 次,暂停抓取")
@@ -1033,7 +1199,12 @@ class GoogleScholarScraper:
                         # 只有在连续失败次数过多时才停止
                         if self.consecutive_failures >= self.max_consecutive_failures:
                             break
-                        continue  # 跳过这一页，继续下一页
+                        # FIX: advance current_url to avoid infinite loop
+                        # Compute next page URL manually since we have no HTML to parse
+                        previous_url = current_url
+                        current_url = self._advance_url_by_one_page(url, page_count)
+                        page_count += 1
+                        continue
 
                 # 解析HTML
                 try:
@@ -1067,64 +1238,23 @@ class GoogleScholarScraper:
                             self.log_callback(f"   - 标题: {paper_content.get('paper_title', '')[:80]}")
                             self.log_callback(f"     链接: {paper_content.get('paper_link', '')[:80]}")
 
-                    # 🔄 启动重试机制
-                    retry_success = False
-                    retry_display = "∞" if self.retry_max_attempts == -1 else str(self.retry_max_attempts)
-                    retry_num = 0
-                    while True:
-                        retry_num += 1
-                        if self.retry_max_attempts != -1 and retry_num > self.retry_max_attempts:
-                            break
-                        if cancel_check and cancel_check():
-                            break
-                        retry_wait = self._get_retry_wait(retry_num - 1)
-                        self.log_callback(f"🔄 第 {retry_num}/{retry_display} 次重试当前页...")
-                        self.log_callback(f"⏳ 等待 {retry_wait} 秒后重新请求（换API Key和session）...")
-                        await asyncio.sleep(retry_wait)
+                    # 🔄 启动重试机制（shared helper）
+                    result = await self._handle_login_page_retry(
+                        current_url, api_key_idx, page_count, cancel_check,
+                    )
 
-                        # 更换session以尝试不同路由
-                        self._rotate_session()
-
-                        # 换一个API Key重试
-                        retry_api_idx = (api_key_idx + retry_num) % len(self.api_keys)
-                        retry_html = await self.request_fn(current_url, retry_api_idx, max_retries=self.retry_max_attempts)
-
-                        if not retry_html:
-                            self.log_callback(f"❌ 重试 {retry_num} 失败：无法获取HTML")
-                            continue
-
-                        # 重新解析
-                        try:
-                            retry_paper_dict, retry_next_page = self.parser.parse_page(retry_html)
-                        except Exception as e:
-                            self.log_callback(f"❌ 重试 {retry_num} 失败：解析错误 {e}")
-                            continue
-
-                        # 重新检测
-                        retry_is_login, retry_indicators = self._detect_login_page(retry_html, retry_paper_dict, page_count, debug=False)
-
-                        if not retry_is_login:
-                            # 重试成功！
-                            self.log_callback(f"✅ 重试成功！第 {page_count} 页正常抓取")
-                            html = retry_html
-                            paper_dict = retry_paper_dict
-                            next_page = retry_next_page
-                            retry_success = True
-                            break
-                        else:
-                            self.log_callback(f"⚠️ 重试 {retry_num} 仍然检测到登录页面")
-
-                    if not retry_success:
+                    if result:
+                        html, paper_dict, next_page = result
+                        self.consecutive_failures = 0
+                    else:
                         # 所有重试都失败了
+                        retry_display = "∞" if self.retry_max_attempts == -1 else str(self.retry_max_attempts)
                         self.log_callback(f"❌ 第 {page_count} 页重试 {retry_display} 次后仍然失败")
                         self.consecutive_failures += 1
                         self.log_callback(f"💾 保存当前进度: 第 {page_count} 页")
                         self._save_resume_progress(page_count)
                         self.log_callback("⏸️  暂停抓取，请检查配置后从第 {} 页继续".format(page_count))
                         break
-                    else:
-                        # 重试成功，重置失败计数
-                        self.consecutive_failures = 0
 
                 # 检查是否有论文
                 paper_count_this_page = len(paper_dict)
@@ -1148,91 +1278,19 @@ class GoogleScholarScraper:
                             reason_parts.append(f"非末页但无下一页（第{page_count}页，预计共{estimated_pages}页）")
                         self.log_callback(f"⚠️ 第 {page_count} 页数据异常: {'；'.join(reason_parts)}（疑似命中不同数据中心）")
 
-                        # 从上一页重新获取下一页链接（换session以尝试不同路由）
-                        best_paper_dict = paper_dict
-                        best_next_page = next_page
-                        best_count = paper_count_this_page
-
-                        dc_retry_display = "∞" if self.dc_retry_max_attempts == -1 else str(self.dc_retry_max_attempts)
-                        dc_retry = 0
-                        dc_retry_success = False
-                        while True:
-                            dc_retry += 1
-                            if self.dc_retry_max_attempts != -1 and dc_retry > self.dc_retry_max_attempts:
-                                break
-                            if cancel_check and cancel_check():
-                                break
-                            dc_wait = self._get_retry_wait(dc_retry - 1)
-                            # 数据中心重试：始终切换国家代码以强制切换DC
-                            country_code = self._get_retry_country(dc_retry)
-                            self.log_callback(f"🔄 数据中心重试 {dc_retry}/{dc_retry_display}，国家={country_code}，等待 {dc_wait} 秒...")
-                            await asyncio.sleep(dc_wait)
-
-                            # 更换session number以尝试不同的代理路由
-                            self._rotate_session()
-
-                            dc_api_idx = (api_key_idx + dc_retry) % len(self.api_keys)
-
-                            # 如果有上一页URL，从上一页重新获取next_page链接
-                            retry_url = current_url
-                            if previous_url:
-                                self.log_callback(f"↩️ 重新请求上一页以获取正确的下一页链接...")
-                                prev_html = await self.request_fn(previous_url, dc_api_idx, max_retries=2, country_code=country_code)
-                                if prev_html:
-                                    try:
-                                        _, new_next_page = self.parser.parse_page(prev_html)
-                                        if new_next_page != 'EMPTY':
-                                            retry_url = new_next_page
-                                        else:
-                                            self.log_callback(f"⚠️ 上一页无下一页链接，使用原URL重试")
-                                    except Exception:
-                                        self.log_callback(f"⚠️ 上一页解析失败，使用原URL重试")
-
-                            dc_html = await self.request_fn(retry_url, dc_api_idx, max_retries=self.retry_max_attempts, country_code=country_code)
-                            if not dc_html:
-                                continue
-
-                            try:
-                                dc_paper_dict, dc_next_page = self.parser.parse_page(dc_html)
-                            except Exception:
-                                continue
-
-                            # 检查重试结果是否更好
-                            dc_count = len(dc_paper_dict)
-
-                            # 保留最佳结果
-                            if dc_count > best_count:
-                                best_paper_dict = dc_paper_dict
-                                best_next_page = dc_next_page
-                                best_count = dc_count
-
-                            improved = False
-                            if page_is_short and dc_count >= expected_on_this_page:
-                                improved = True
-                            elif page_ends_early and dc_next_page != 'EMPTY':
-                                improved = True
-
-                            if improved:
-                                self.log_callback(f"✅ 数据中心重试成功！获得 {dc_count} 篇论文")
-                                paper_dict = dc_paper_dict
-                                next_page = dc_next_page
-                                paper_count_this_page = dc_count
-                                if self.debug_mode:
-                                    self._save_debug_html(dc_html, page_count)
-                                dc_retry_success = True
-                                break
-                            else:
-                                self.log_callback(f"⚠️ 重试 {dc_retry} 仍异常（{dc_count} 篇）")
-
-                        if not dc_retry_success:
-                            # 所有重试都失败，使用最佳结果
-                            if best_count > paper_count_this_page:
-                                self.log_callback(f"⚠️ 多次重试后仍异常，使用最佳结果（{best_count} 篇）继续")
-                                paper_dict = best_paper_dict
-                                next_page = best_next_page
-                                paper_count_this_page = best_count
-                            else:
-                                self.log_callback(f"⚠️ 多次重试后仍异常，使用当前结果继续")
+                        paper_dict, next_page, paper_count_this_page = await self._handle_dc_inconsistency_retry(
+                            current_url=current_url,
+                            previous_url=previous_url,
+                            api_key_idx=api_key_idx,
+                            page_count=page_count,
+                            paper_dict=paper_dict,
+                            next_page=next_page,
+                            paper_count_this_page=paper_count_this_page,
+                            expected_on_this_page=expected_on_this_page,
+                            page_is_short=page_is_short,
+                            page_ends_early=page_ends_early,
+                            cancel_check=cancel_check,
+                        )
 
                 if paper_count_this_page > 0:
                     last_page_had_papers = True
@@ -1280,6 +1338,10 @@ class GoogleScholarScraper:
 
         self.log_callback(f"✅ 抓取完成!共 {page_count - start_page} 页,{total_papers} 篇论文")
 
+    # ------------------------------------------------------------------
+    # File merging
+    # ------------------------------------------------------------------
+
     def _merge_year_files(self, temp_files: list, output_file: Path):
         """
         合并多个年份的临时文件到最终输出文件
@@ -1319,18 +1381,21 @@ class GoogleScholarScraper:
         except Exception as e:
             self.log_callback(f"❌ 合并文件失败: {e}")
 
+    # ------------------------------------------------------------------
+    # Resume / completeness
+    # ------------------------------------------------------------------
+
     def _save_resume_progress(self, page_count: int):
-        """保存断点进度到 config.json"""
+        """保存断点进度到 config.json (使用绝对路径)"""
         try:
-            import os
-            config_path = Path('config.json')
+            config_path = self._get_config_path()
             if config_path.exists():
                 with open(config_path, 'r', encoding='utf-8') as f:
                     config = json.load(f)
                 config['resume_page_count'] = page_count
                 with open(config_path, 'w', encoding='utf-8') as f:
                     json.dump(config, f, ensure_ascii=False, indent=2)
-                self.log_callback(f"💾 断点已保存: 第 {page_count} 页")
+                self.log_callback(f"💾 断点已保存: 第 {page_count} 页 ({config_path})")
         except Exception as e:
             self.log_callback(f"⚠️  保存断点失败: {e}")
 

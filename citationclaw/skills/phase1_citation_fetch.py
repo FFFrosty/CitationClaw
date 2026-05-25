@@ -11,6 +11,13 @@ class CitationFetchSkill:
     name = "phase1_citation_fetch"
 
     async def run(self, ctx: SkillContext, **kwargs) -> SkillResult:
+        try:
+            return await self._run_inner(ctx, **kwargs)
+        except Exception as e:
+            ctx.log(f"[Phase1] fatal error: {e}")
+            raise
+
+    async def _run_inner(self, ctx: SkillContext, **kwargs) -> SkillResult:
         config = ctx.config
         url: str = kwargs["url"]
         output_file = kwargs.get("output_file")
@@ -52,19 +59,19 @@ class CitationFetchSkill:
         out = Path(output_file)
         cache = Phase1Cache()
 
-        # ── 完整缓存命中：直接从缓存重建 JSONL，跳过爬虫 ──────────────────
-        if cache.is_complete(url):
-            ctx.log(f"💾 [Phase1缓存] 命中完整缓存，跳过爬取: {url[:60]}...")
+        # -- full cache hit: rebuild JSONL from cache, skip scraping --
+        if cache.is_complete(url, require_year_traverse=enable_year_traverse):
+            ctx.log(f"[Phase1 cache] full hit, skipping scrape: {url[:60]}...")
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_text(cache.build_jsonl(url), encoding="utf-8")
-            ctx.log(f"💾 Phase1缓存复用: {len(cache._data.get(url, {}).get('papers', {}))} 篇论文")
+            ctx.log(f"[Phase1 cache] reused {cache.paper_count(url)} papers")
             return SkillResult(name=self.name, data={"output_file": str(out), "from_cache": True})
 
-        # ── 定义 page_callback：每页写入缓存 ──────────────────────────────
+        # -- page callback: write each page into cache --
         async def on_page(paper_dict: dict, year):
             await cache.add_papers(url, paper_dict, year=year)
 
-        # ── 年份遍历模式：通过 year_complete_callback 标记完成 ───────────
+        # -- year traverse: mark year complete --
         async def on_year_complete(year: int):
             await cache.mark_year_complete(url, year)
 
@@ -78,14 +85,14 @@ class CitationFetchSkill:
             page_callback=on_page,
             year_complete_callback=on_year_complete,
             cached_years=set(
-                int(y) for y, v in cache._data.get(url, {}).get("years", {}).items()
+                int(y) for y, v in cache.cached_years(url).items()
                 if v.get("complete")
             ) if enable_year_traverse else None,
         )
 
-        # ── 标记完整完成（仅在未取消时）──────────────────────────────────
+        # -- mark complete (only if not cancelled) --
         if not (ctx.cancel_check and ctx.cancel_check()):
             await cache.mark_complete(url)
-            ctx.log(f"💾 Phase1缓存已保存: {len(cache._data.get(url, {}).get('papers', {}))} 篇论文")
+            ctx.log(f"[Phase1 cache] saved {cache.paper_count(url)} papers")
 
         return SkillResult(name=self.name, data={"output_file": str(out), "from_cache": False})

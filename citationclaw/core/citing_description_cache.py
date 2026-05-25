@@ -9,11 +9,21 @@
 """
 import json
 import asyncio
+import logging
+import os
+import tempfile
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
-DEFAULT_CACHE_FILE = Path("data/cache/citing_description_cache.json")
+from citationclaw.app.config_manager import DATA_DIR
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_CACHE_FILE = DATA_DIR / "cache" / "citing_description_cache.json"
+
+# Sentinel values that should NOT be persisted in the cache
+_NONE_SENTINELS = {"NONE"}
 
 
 class CitingDescriptionCache:
@@ -24,12 +34,17 @@ class CitingDescriptionCache:
     def __init__(self, cache_file: Path = DEFAULT_CACHE_FILE):
         self.cache_file = cache_file
         self._data: dict = {}
-        self._lock = asyncio.Lock()
+        self._lock = None  # created lazily for Python 3.12+ compatibility
         self._hits = 0
         self._misses = 0
         self._updates = 0
         self._pending = 0     # 距上次写盘后的待写条数
         self._load()
+
+    def _get_lock(self):
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     # ─── 内部 ────────────────────────────────────────────────────────────────
 
@@ -39,18 +54,28 @@ class CitingDescriptionCache:
             try:
                 text = self.cache_file.read_text(encoding="utf-8")
                 self._data = json.loads(text)
-            except Exception:
+            except Exception as e:
+                logger.warning("Failed to load citing description cache from %s: %s", self.cache_file, e)
                 self._data = {}
         else:
             self._data = {}
 
     async def _save(self):
-        """将内存数据写入磁盘（调用方须已持有 _lock）。"""
+        """将内存数据写入磁盘（调用方须已持有 _lock）。使用原子写入。"""
         self.cache_file.parent.mkdir(parents=True, exist_ok=True)
-        self.cache_file.write_text(
-            json.dumps(self._data, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        data_snapshot = self._data.copy()
+
+        def _write():
+            tmp_fd, tmp_path = tempfile.mkstemp(dir=str(self.cache_file.parent), suffix='.tmp')
+            try:
+                with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
+                    json.dump(data_snapshot, f, ensure_ascii=False, indent=2)
+                os.replace(tmp_path, str(self.cache_file))
+            except BaseException:
+                os.unlink(tmp_path)
+                raise
+
+        await asyncio.to_thread(_write)
 
     # ─── 公共 API ─────────────────────────────────────────────────────────────
 
@@ -90,16 +115,27 @@ class CitingDescriptionCache:
         paper_title: str,
         citing_paper: str,
         description: str,
+        source: Optional[str] = None,
     ):
-        """将新搜索到的引用描述写入缓存。"""
+        """将新搜索到的引用描述写入缓存。Skips 'NONE' sentinel values.
+
+        Args:
+            source: Optional tag indicating how the description was obtained
+                    (e.g. "pdf", "llm", "cache"). Stored alongside the entry.
+        """
+        if description in _NONE_SENTINELS:
+            return
         key = self.make_key(paper_link, paper_title, citing_paper)
-        async with self._lock:
-            self._data[key] = {
+        async with self._get_lock():
+            entry = {
                 "paper_title": paper_title,
                 "citing_paper": citing_paper,
                 "Citing_Description": description,
                 "cached_at": datetime.now().isoformat(),
             }
+            if source is not None:
+                entry["source"] = source
+            self._data[key] = entry
             self._updates += 1
             self._pending += 1
             if self._pending >= self.WRITE_EVERY:
@@ -108,7 +144,7 @@ class CitingDescriptionCache:
 
     async def flush(self):
         """强制写盘（Phase 结束时调用，确保最后不足 WRITE_EVERY 条的数据也落盘）。"""
-        async with self._lock:
+        async with self._get_lock():
             if self._pending > 0:
                 await self._save()
                 self._pending = 0

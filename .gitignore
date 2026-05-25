@@ -17,25 +17,32 @@ build/
 venv/
 env/
 
+# MinerU local models (symlinked, ~2GB)
+data/models/
+
 # Runtime outputs (keep result-template examples)
 data/result-*/
 !data/result-template1/
 !data/result-template2/
+runtime/
 
 # Runtime cache and config
 data/cache/
 config.json
 .superpowers/
+autor-test/.env
 
-# Local-only files (PyPI publishing & Claude instructions)
+# Local-only files (Claude instructions)
 CLAUDE.md
-publish.sh
-pyproject.toml
-homepage-preview*.png
-teaser-full.png
-teaser-charts.png
-docs/assets/ui-full.png
-CitationClaw_icon.png
 .playwright-mcp/
 debug/
-docs/superpowers/
+
+# Test/benchmark scripts with API keys (DO NOT COMMIT)
+test_papers.py
+run_benchmark.py
+benchmark_papers.py
+benchmark_result.txt
+run_benchmark_baseline.py
+
+# Office temp files
+~$*

@@ -10,6 +10,13 @@ class AuthorIntelSkill:
     name = "phase2_author_intel"
 
     async def run(self, ctx: SkillContext, **kwargs) -> SkillResult:
+        try:
+            return await self._run_inner(ctx, **kwargs)
+        except Exception as e:
+            ctx.log(f"[Phase2] fatal error: {e}")
+            raise
+
+    async def _run_inner(self, ctx: SkillContext, **kwargs) -> SkillResult:
         config = ctx.config
         input_file = Path(kwargs["input_file"])
         output_file = Path(kwargs["output_file"])
@@ -38,6 +45,9 @@ class AuthorIntelSkill:
             target_paper_authors=target_paper_authors,
             author_cache=author_cache,
             cancel_event=quota_event,
+            wos_api_key=getattr(config, 'wos_api_key', ''),
+            s2_api_key=getattr(config, 's2_api_key', ''),
+            mineru_api_token=getattr(config, 'mineru_api_token', ''),
         )
 
         await searcher.search(

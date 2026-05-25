@@ -1,6 +1,8 @@
 // WebSocket连接管理器
+const _wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+
 class WebSocketManager {
-    constructor(url = `ws://${window.location.host}/ws`) {
+    constructor(url = `${_wsProto}//${window.location.host}/ws`) {
         this.url = url;
         this.ws = null;
         this.handlers = {
@@ -25,7 +27,13 @@ class WebSocketManager {
             };
 
             this.ws.onmessage = (event) => {
-                const message = JSON.parse(event.data);
+                let message;
+                try {
+                    message = JSON.parse(event.data);
+                } catch (e) {
+                    console.error('WebSocket: malformed message', e);
+                    return;
+                }
                 const handlers = this.handlers[message.type] || [];
                 handlers.forEach(handler => handler(message.data));
             };
@@ -61,11 +69,16 @@ class WebSocketManager {
         this.handlers[event].push(handler);
     }
 
+    off(type, handler) {
+        this.handlers[type] = (this.handlers[type] || []).filter(h => h !== handler);
+    }
+
     disconnect() {
         if (this.ws) {
             this.ws.close();
             this.ws = null;
         }
+        this.handlers = {};
     }
 
     updateStatus(text, type) {

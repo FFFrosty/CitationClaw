@@ -3,6 +3,18 @@ from pathlib import Path
 from typing import List
 from pydantic import BaseModel, Field
 
+# Project root: three levels up from this file (config_manager.py -> app -> citationclaw -> project root)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_DEFAULT_CONFIG_PATH = _PROJECT_ROOT / "config.json"
+
+
+def _resolve_data_dir() -> Path:
+    """Return the absolute path to the project data directory."""
+    return _PROJECT_ROOT / "data"
+
+
+DATA_DIR = _resolve_data_dir()
+
 
 class AppConfig(BaseModel):
     """应用配置模型"""
@@ -16,8 +28,11 @@ class AppConfig(BaseModel):
     openai_api_key: str = Field(default="", description="OpenAI兼容的API Key")
     openai_base_url: str = Field(default="https://api.gpt.ge/v1/", description="API Base URL")
     openai_model: str = Field(default="gemini-3-flash-preview-search", description="模型名称")
+    light_api_key: str = Field(default="", description="轻量模型 OpenAI 兼容 API Key，留空则复用 openai_api_key")
+    light_base_url: str = Field(default="", description="轻量模型 API Base URL，留空则复用 openai_base_url")
 
     # 任务配置
+    result_folder_prefix: str = Field(default="", description="结果文件夹前缀（留空则默认 result-时间戳）")
     default_output_prefix: str = Field(default="paper", description="默认输出文件前缀")
     sleep_between_pages: int = Field(default=10, description="翻页间隔（秒）")
     sleep_between_authors: float = Field(default=0.5, description="搜索作者间隔（秒）")
@@ -124,13 +139,31 @@ class AppConfig(BaseModel):
     dashboard_model: str = Field(default="gemini-3-flash-preview-nothinking",
                                  description="画像报告 LLM 分析使用的模型")
 
+    def effective_light_api_key(self) -> str:
+        return self.light_api_key or self.openai_api_key
+
+    def effective_light_base_url(self) -> str:
+        return self.light_base_url if self.light_api_key else self.openai_base_url
+
+    # Semantic Scholar API Key (提升速率限制: 1 req/s → 10-100 req/s)
+    s2_api_key: str = Field(default="", description="Semantic Scholar API Key（可选，大幅提升 PDF 下载成功率）")
+
+    # Web of Science Starter API Key (结构化作者提取)
+    wos_api_key: str = Field(default="", description="Web of Science Starter API Key（用于结构化作者提取，优先级高于 S2）")
+
+    # MinerU Cloud API
+    mineru_api_token: str = Field(default="", description="MinerU Cloud Precision API Token（可选，用于大文件解析）")
+
+    # CDP Browser Download (IEEE/Elsevier 通过真实浏览器下载)
+    cdp_debug_port: int = Field(default=0, description="Chrome/Edge 远程调试端口（0=禁用，9222=启用 CDP 浏览器下载）")
+
     # 费用追踪配置
     api_access_token: str = Field(default="", description="API中转站系统令牌（用于查询额度，在个人中心获取）")
     api_user_id: str = Field(default="", description="API中转站用户数字ID（在个人中心查看）")
 
 
 class ConfigManager:
-    def __init__(self, config_path: str = "config.json"):
+    def __init__(self, config_path: str = str(_DEFAULT_CONFIG_PATH)):
         self.config_path = Path(config_path)
         self.config = self._load()
 

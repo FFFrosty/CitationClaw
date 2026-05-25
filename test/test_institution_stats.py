@@ -2,7 +2,7 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from core.dashboard_generator import DashboardGenerator
+from citationclaw.core.dashboard_generator import DashboardGenerator
 
 
 def _make_gen():
@@ -20,13 +20,26 @@ def test_google_matched_via_institution():
     assert "Google" in names
 
 
-def test_huawei_matched_via_affiliation():
+def test_huawei_matched_via_author_affiliation():
+    """Matches individual author affiliations (parsed line-by-line)."""
     gen = _make_gen()
-    papers = [{"title": "Paper B", "institution": "", "author_affiliation": "Huawei Noah's Ark Lab"}]
+    # Huawei in first author institution → matched
+    papers = [{"title": "Paper B", "institution": "Huawei Noah's Ark Lab", "author_affiliation": ""}]
     result = gen._compute_institution_stats(papers)
     assert "国内科技企业" in result
     names = [name for name, _ in result["国内科技企业"]]
     assert "华为" in names
+
+    # Huawei in co-author affiliation (structured: name\naffil\nname\naffil)
+    papers2 = [{"title": "Paper B2", "institution": "Unknown University",
+                "author_affiliation": "Alice\nUnknown University\nBob\nHuawei Noah's Ark Lab"}]
+    result2 = gen._compute_institution_stats(papers2)
+    assert "国内科技企业" in result2
+
+    # 未知机构 should not match anything
+    papers3 = [{"title": "Paper B3", "institution": "", "author_affiliation": "Alice\n未知机构"}]
+    result3 = gen._compute_institution_stats(papers3)
+    assert result3 == {}
 
 
 def test_deduplication_same_paper():
