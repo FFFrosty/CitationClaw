@@ -602,6 +602,7 @@ function initIndexPage() {
             const resp = await safeFetch('/api/providers');
             const data = await resp.json();
             _providerPresets = data.presets || {};
+            _syncProviderPresetActive();
         } catch (e) {
             console.warn('加载 Provider 预设失败:', e);
         }
@@ -633,6 +634,25 @@ function initIndexPage() {
         });
     });
 
+    // 根据当前 light_base_url 同步快捷填充按钮的 active 状态
+    function _syncProviderPresetActive() {
+        const presets = _providerPresets;
+        if (!presets || Object.keys(presets).length === 0) return;  // provider 预设尚未加载
+        const urlEl = document.getElementById('idx-openai-url');
+        if (!urlEl) return;
+        const currentUrl = urlEl.value.trim().replace(/\/+$/, '').toLowerCase();
+        if (!currentUrl) return;
+        let matched = null;
+        for (const [key, preset] of Object.entries(presets)) {
+            if (!preset.base_url) continue;
+            const presetUrl = preset.base_url.trim().replace(/\/+$/, '').toLowerCase();
+            if (currentUrl === presetUrl) { matched = key; break; }
+        }
+        document.querySelectorAll('.btn-provider-preset').forEach(b => {
+            b.classList.toggle('active', b.dataset.provider === matched);
+        });
+    }
+
     // Phase label 映射
     const phaseLabels = {
         'URL': 'Phase 0 · 查找引用链接',
@@ -656,6 +676,7 @@ function initIndexPage() {
                 _syncApiKeyType(el('idx-openai-key'));
             }
             _searchBaseUrl = cfg.openai_base_url || _searchBaseUrl;
+            if (el('idx-openai-url-search')) el('idx-openai-url-search').value = cfg.openai_base_url || '';
             if (el('idx-openai-url')) el('idx-openai-url').value = cfg.light_base_url || cfg.openai_base_url || '';
             if (el('idx-light-api-key')) {
                 el('idx-light-api-key').value = cfg.light_api_key || '';
@@ -680,6 +701,7 @@ function initIndexPage() {
             if (el('idx-cdp-debug-port')) el('idx-cdp-debug-port').value = cfg.cdp_debug_port || 0;
             if (el('idx-api-access-token')) el('idx-api-access-token').value = cfg.api_access_token || '';
             if (el('idx-api-user-id')) el('idx-api-user-id').value = cfg.api_user_id || '';
+            _syncProviderPresetActive();
         } catch (e) {
             console.error('加载配置失败:', e);
         }
@@ -706,7 +728,7 @@ function initIndexPage() {
             const body = {
                 scraper_api_keys: keys,
                 openai_api_key: el('idx-openai-key')?.value || '',
-                openai_base_url: _searchBaseUrl,
+                openai_base_url: el('idx-openai-url-search')?.value || _searchBaseUrl,
                 openai_model: el('idx-openai-model')?.value || '',
                 light_api_key: el('idx-light-api-key')?.value || '',
                 light_base_url: el('idx-openai-url')?.value || '',
@@ -800,7 +822,7 @@ function initIndexPage() {
     window.pretestSearchLLM = function() {
         const el = id => document.getElementById(id);
         const key = el('idx-openai-key')?.value?.trim();
-        const baseUrl = _searchBaseUrl;
+        const baseUrl = el('idx-openai-url-search')?.value?.trim() || _searchBaseUrl;
         const model = el('idx-openai-model')?.value?.trim();
         if (!key) {
             const box = document.getElementById('pretest-search-result');

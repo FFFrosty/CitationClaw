@@ -65,7 +65,7 @@ def main():
         print(f"  或先关闭占用该端口的程序。\n")
         sys.exit(1)
 
-    print(f"\n  CitationClaw v2 🦞  →  http://{args.host}:{args.port}\n")
+    print(f"\n  CitationClaw v2  ->  http://{args.host}:{args.port}\n")
 
     if not args.no_browser:
         def _open_browser():

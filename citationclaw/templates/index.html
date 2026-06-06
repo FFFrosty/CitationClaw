@@ -151,13 +151,17 @@
          style="font-size:11px;color:var(--light);text-decoration:underline dotted;margin-left:auto">注册 V-API</a>
     </div>
     <div class="row g-2">
-      <div class="col-md-7">
-        <input type="text" id="idx-openai-key" class="form-control" placeholder="Search LLM API Key: sk-..." autocomplete="off">
+      <div class="col-md-3">
+        <input type="text" id="idx-openai-url-search" class="form-control" placeholder="Base URL" style="font-size:12.5px">
       </div>
-      <div class="col-md-4" style="display:flex;align-items:center">
+      <div class="col-md-3">
+        <input type="text" id="idx-openai-key" class="form-control" placeholder="API Key: sk-..." autocomplete="off">
+      </div>
+      <div class="col-md-5" style="display:flex;align-items:center">
         <select id="idx-openai-model" class="form-select" style="font-size:12.5px">
           <option value="gemini-3-flash-preview-search">gemini-3-flash-preview-search (default)</option>
           <option value="gemini-3.1-pro-preview-search">gemini-3.1-pro-preview-search</option>
+          <option value="google/gemini-3-flash-preview">google/gemini-3-flash-preview</option>
           <option value="gpt-5-search-api">gpt-5-search-api</option>
           <option value="deepseek-r1-search">deepseek-r1-search</option>
           <option value="deepseek-v3-search">deepseek-v3-search</option>
